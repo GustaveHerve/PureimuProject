@@ -1,13 +1,12 @@
 #![allow(dead_code)]
 
-mod cpu;
-
-mod opcodes;
+mod psx;
 
 fn main() {
-    let cpu = cpu::R3000::new();
+    let psx = psx::PSX::new();
     let running = true;
     while running {
-        cpu.fetch_decode();
+        psx.next_instruction();
+        break;
     }
 }
