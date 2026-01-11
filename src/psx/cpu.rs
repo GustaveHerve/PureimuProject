@@ -1,3 +1,5 @@
+mod opcodes;
+
 use crate::psx::mem::MemBus;
 
 #[derive(Debug)]

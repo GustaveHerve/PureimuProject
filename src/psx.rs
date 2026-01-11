@@ -1,6 +1,5 @@
 mod cpu;
 mod mem;
-mod opcodes;
 
 pub struct PSX {
     cpu: cpu::CPU,
