@@ -6,10 +6,10 @@ pub mod special;
 
 #[derive(Clone, Copy)]
 pub struct IType {
-    op: u8,
-    rs: u8,
-    rt: u8,
-    imm: u16,
+    pub op: u8,
+    pub rs: u8,
+    pub rt: u8,
+    pub imm: u16,
 }
 
 #[derive(Clone, Copy)]

@@ -2,6 +2,8 @@ mod opcodes;
 
 use crate::psx::mem::MemBus;
 
+use opcodes::load_store::{LoadOp, StoreOp};
+
 #[derive(Debug)]
 pub struct R3000 {
     gpr: [u32; 32],
@@ -33,7 +35,16 @@ impl CPU {
         }
     }
 
-    pub fn fetch_decode(&self, membus: &MemBus) {
-        membus.read_mem(0);
+    pub fn fetch_decode(&mut self, bus: &MemBus) {
+        let instr: u32 = bus.read_u32(0);
+        let op = opcodes::IType {
+            op: LoadOp::LB as u8,
+            rs: 1,
+            rt: 2,
+            imm: 3,
+        };
+        match instr {
+            _ => self.load(bus, &op),
+        }
     }
 }

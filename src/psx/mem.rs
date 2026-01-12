@@ -30,7 +30,7 @@ impl MemAddr {
 }
 
 impl MemBus {
-    pub fn read_mem(&self, addr: u32) -> u32 {
+    fn internal_read(&self, addr: u32) -> u32 {
         let addr: MemAddr = MemAddr::from_u32(addr);
         match addr.offset {
             0x0000_0000..0x1f00_0000 => todo!(), // Main RAM
@@ -43,5 +43,29 @@ impl MemBus {
             _ => (),
         };
         0b100000_00001_00010_0000000000000000 // lb 2,[r1+0]
+    }
+
+    pub fn read_u8(&self, addr: u32) -> u8 {
+        self.internal_read(addr) as u8
+    }
+
+    pub fn read_u16(&self, addr: u32) -> u16 {
+        self.internal_read(addr) as u16
+    }
+
+    pub fn read_u32(&self, addr: u32) -> u32 {
+        self.internal_read(addr) as u32
+    }
+
+    pub fn write_u8(&mut self, addr: u32, val: u8) {
+        todo!()
+    }
+
+    pub fn write_u16(&mut self, addr: u32, val: u16) {
+        todo!()
+    }
+
+    pub fn write_u32(&mut self, addr: u32, val: u32) {
+        todo!()
     }
 }
