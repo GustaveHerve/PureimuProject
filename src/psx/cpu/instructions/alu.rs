@@ -32,42 +32,82 @@ define_repr_enum! {
 
 define_repr_enum! {
     pub enum ShiftFunct : u8 {
-        SLLV = 0b000100,
-        SRLV = 0b000110,
-        SRAV = 0b000111,
         SLL = 0b000000,
         SRL = 0b000010,
         SRA = 0b000011,
+        SLLV = 0b000100,
+        SRLV = 0b000110,
+        SRAV = 0b000111,
     }
 }
 
 impl CPU {
-    pub fn alu_reg(bus: &MemBus, instr: &super::RType) {
-        let alu_op = match AluRegFunct::try_from(instr.op()) {
-            Ok(op) => op,
-            _ => panic!("Invalid load opcode"),
+    pub fn alu_reg(&mut self, bus: &MemBus, alu_op: AluRegFunct, rs: u8, rt: u8, rd: u8) {
+        let rs_idx = rs as usize;
+        let rs_val = self.core.get_gpr(rs_idx);
+        let rt_idx = rt as usize;
+        let rt_val = self.core.get_gpr(rt_idx);
+
+        let res = match alu_op {
+            AluRegFunct::ADD | AluRegFunct::ADDU => rs_val.wrapping_add(rt_val),
+            AluRegFunct::SUB | AluRegFunct::SUBU => rs_val.wrapping_sub(rt_val),
+            AluRegFunct::SLT => (rs_val.cast_signed() < rt_val.cast_signed()) as u32,
+            AluRegFunct::SLTU => (rs_val < rt_val) as u32,
+            AluRegFunct::AND => rs_val & rt_val,
+            AluRegFunct::OR => rs_val | rt_val,
+            AluRegFunct::XOR => rs_val ^ rt_val,
+            AluRegFunct::NOR => u32::MAX ^ (rs_val | rt_val),
         };
+        // TODO: handle overflow traps for ADDU and SUBU
 
-        if let Ok(e) = AluRegFunct::try_from(instr.funct()) {}
-        if let Ok(e) = AluImmOp::try_from(instr.op()) {}
-        if let Ok(e) = AluRegFunct::try_from(instr.funct()) {}
-
-        panic!("Invalid ALU opcode")
+        let rd_idx = rd as usize;
+        self.core.set_gpr(rd_idx, res);
     }
 
-    pub fn alu_imm(bus: &MemBus, instr: &super::IType) {
+    pub fn alu_imm(&mut self, bus: &MemBus, alu_op: AluImmOp, rs: u8, rt: u8, imm: u16) {
+        let rs_idx = rs as usize;
+        let rs_val = self.core.get_gpr(rs_idx);
+        let imm_ex = imm as i16 as i32 as u32;
+
+        let res = match alu_op {
+            AluImmOp::ADDI | AluImmOp::ADDIU => rs_val.wrapping_add(imm_ex),
+            AluImmOp::SLTI => (rs_val.cast_signed() < imm_ex.cast_signed()) as u32,
+            AluImmOp::SLTIU => (rs_val < imm_ex) as u32,
+            AluImmOp::ANDI => rs_val & (imm as u32),
+            AluImmOp::ORI => rs_val | (imm as u32),
+            AluImmOp::XORI => rs_val ^ (imm as u32),
+        };
+        // TODO: handle overflow traps for ADDIU and SUBIU
+
+        let rt_idx = rt as usize;
+        self.core.set_gpr(rt_idx, res);
+    }
+
+    pub fn shift(&mut self, bus: &MemBus, shift_op: ShiftFunct, rs: u8, rt: u8, rd: u8, shamt: u8) {
+        let rs_idx = rs as usize;
+        let rs_val = self.core.get_gpr(rs_idx);
+        let rt_idx = rt as usize;
+        let rt_val = self.core.get_gpr(rt_idx);
+
+        let res = match shift_op {
+            ShiftFunct::SLL => rt_val << shamt,
+            ShiftFunct::SRL => rt_val >> shamt,
+            ShiftFunct::SRA => (rt_val.cast_signed() >> shamt) as u32,
+            ShiftFunct::SLLV => rt_val << (rs_val & 0x1f),
+            ShiftFunct::SRLV => rt_val >> (rs_val & 0x1f),
+            ShiftFunct::SRAV => (rt_val.cast_signed() >> (rs_val & 0x1f)) as u32,
+        };
+        // TODO: handle overflow traps for ADDU and SUBU
+
+        let rd_idx = rd as usize;
+        self.core.set_gpr(rd_idx, res);
+    }
+
+    pub fn lui(&mut self, bus: &MemBus, instr: &super::IType) {
         todo!()
     }
 
-    pub fn shift(bus: &MemBus, instr: &super::RType) {
-        todo!()
-    }
-
-    pub fn lui(bus: &MemBus, instr: &super::IType) {
-        todo!()
-    }
-
-    pub fn muldiv(bus: &MemBus, instr: &super::RType) {
+    pub fn muldiv(&mut self, bus: &MemBus, instr: &super::RType) {
         todo!()
     }
 }

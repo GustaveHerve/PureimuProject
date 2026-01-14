@@ -72,7 +72,7 @@ fn swr(bus: &MemBus, addr: u32, val: u32) -> u32 {
 impl CPU {
     pub fn load(&mut self, bus: &MemBus, load_op: LoadOp, rs: u8, rt: u8, imm: u16) {
         let rs_idx: usize = rs as usize;
-        let rs_val = self.core.get_reg(rs_idx);
+        let rs_val = self.core.get_gpr(rs_idx);
 
         let addr = rs_val.wrapping_add_signed(imm.cast_signed() as i32);
         let res = match load_op {
@@ -81,17 +81,17 @@ impl CPU {
             LoadOp::LH => bus.read_u16(addr).cast_signed() as i32 as u32,
             LoadOp::LHU => bus.read_u16(addr) as u32,
             LoadOp::LW => bus.read_u32(addr),
-            LoadOp::LWL => lwl(bus, addr, self.core.get_reg(rs_idx)),
-            LoadOp::LWR => lwr(bus, addr, self.core.get_reg(rs_idx)),
+            LoadOp::LWL => lwl(bus, addr, rs_val),
+            LoadOp::LWR => lwr(bus, addr, rs_val),
         };
-        self.core.set_reg(rt as usize, res);
+        self.core.set_gpr(rt as usize, res);
     }
 
     pub fn store(&self, bus: &mut MemBus, store_op: StoreOp, rs: u8, rt: u8, imm: u16) {
         let rs_idx: usize = rs as usize;
-        let rs_val = self.core.get_reg(rs_idx);
+        let rs_val = self.core.get_gpr(rs_idx);
         let rt_idx: usize = rt as usize;
-        let rt_val = self.core.get_reg(rt_idx);
+        let rt_val = self.core.get_gpr(rt_idx);
 
         let addr = rs_val.wrapping_add_signed(imm.cast_signed() as i32);
         match store_op {
