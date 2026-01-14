@@ -14,7 +14,8 @@ impl PSX {
         }
     }
 
-    pub fn next_instruction(&mut self) {
+    pub fn exec_next_instr(&mut self) {
         self.cpu.fetch_decode(&self.mem);
+        println!("{:?}", self.cpu);
     }
 }
