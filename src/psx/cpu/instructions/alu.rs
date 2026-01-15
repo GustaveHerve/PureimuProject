@@ -27,6 +27,7 @@ define_repr_enum! {
         ANDI = 0b001100,
         ORI = 0b001101,
         XORI = 0b001110,
+        LUI = 0b001111
     }
 }
 
@@ -76,6 +77,7 @@ impl CPU {
             AluImmOp::ANDI => rs_val & (imm as u32),
             AluImmOp::ORI => rs_val | (imm as u32),
             AluImmOp::XORI => rs_val ^ (imm as u32),
+            AluImmOp::LUI => (imm as u32) << 16,
         };
         // TODO: handle overflow traps for ADDIU and SUBIU
 
@@ -97,14 +99,9 @@ impl CPU {
             ShiftFunct::SRLV => rt_val >> (rs_val & 0x1f),
             ShiftFunct::SRAV => (rt_val.cast_signed() >> (rs_val & 0x1f)) as u32,
         };
-        // TODO: handle overflow traps for ADDU and SUBU
 
         let rd_idx = rd as usize;
         self.core.set_gpr(rd_idx, res);
-    }
-
-    pub fn lui(&mut self, bus: &MemBus, instr: &super::IType) {
-        todo!()
     }
 
     pub fn muldiv(&mut self, bus: &MemBus, instr: &super::RType) {

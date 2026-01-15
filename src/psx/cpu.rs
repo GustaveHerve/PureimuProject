@@ -7,6 +7,9 @@ use instructions::{IType, Instr, JType, RType};
 use crate::psx::mem::MemBus;
 
 const ICACHE_SIZE: usize = 4096;
+const ICACHE_LINE_LEN: usize = 16;
+
+const ICACHE_LEN_LINE: usize = ICACHE_SIZE / ICACHE_LINE_LEN;
 
 #[derive(Debug)]
 struct R3000 {
@@ -32,13 +35,19 @@ impl R3000 {
 }
 
 #[derive(Debug)]
-pub struct COP0 {}
+struct COP0 {}
+
+#[derive(Debug, Clone, Copy)]
+struct ICacheLineEntry {
+    tag: bool,
+    word: [u32; 4],
+}
 
 #[derive(Debug)]
 pub struct CPU {
     core: R3000,
     cop0: COP0,
-    icache: [u32; ICACHE_SIZE],
+    icache: [ICacheLineEntry; ICACHE_LEN_LINE],
 }
 
 impl CPU {
@@ -52,8 +61,29 @@ impl CPU {
                 lo: 0,
             },
             cop0: COP0 {},
-            icache: [0; ICACHE_SIZE],
+            icache: [ICacheLineEntry {
+                tag: false,
+                word: [0; 4],
+            }; ICACHE_LEN_LINE],
         }
+    }
+
+    fn lookup_icache(&self, addr: u32) -> Option<u32> {
+        let line_idx: usize = (addr as usize >> 4) & 0xff;
+        if self.icache[line_idx].tag {
+            Some(self.icache[line_idx].word[((addr >> 2) & 0b11) as usize])
+        } else {
+            None
+        }
+    }
+
+    fn load_icache_line(&mut self, bus: &MemBus, addr: u32) {
+        let line_idx: usize = (addr as usize >> 4) & 0xff;
+        let start_addr: u32 = addr & !0xf;
+        for idx in 0..4 {
+            self.icache[line_idx].word[idx] = bus.read_u32(start_addr + (idx * 4) as u32);
+        }
+        self.icache[line_idx].tag = true;
     }
 
     fn dispatch_itype(&mut self, bus: &mut MemBus, itype: IType) -> Result<(), ()> {
@@ -94,13 +124,18 @@ impl CPU {
     }
 
     pub fn fetch_decode_execute(&mut self, bus: &mut MemBus) {
-        let instr: Instr = bus.read_u32(self.core.pc).into();
+        let instr: Instr = if let Some(raw_instr) = self.lookup_icache(self.core.pc) {
+            raw_instr
+        } else {
+            bus.read_u32(self.core.pc)
+        }
+        .into();
         let Ok(_) = (match instr {
             Instr::IType(itype) => self.dispatch_itype(bus, itype),
             Instr::JType(jtype) => self.dispatch_jtype(bus, jtype),
             Instr::RType(rtype) => self.dispatch_rtype(bus, rtype),
         }) else {
-            panic!("Invalid instruction (PC=0x{:x})", self.core.pc);
+            panic!("Invalid instruction (PC={:#x})", self.core.pc);
         };
     }
 }

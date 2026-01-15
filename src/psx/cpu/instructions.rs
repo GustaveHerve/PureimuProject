@@ -123,8 +123,8 @@ impl Instr {
 impl From<u32> for Instr {
     fn from(value: u32) -> Self {
         match (value >> 26) & 0b11 {
-            0 => Instr::RType(RType(value)),
-            2 | 3 => Instr::JType(JType(value)),
+            0b00 => Instr::RType(RType(value)),
+            0b10 | 0b11 => Instr::JType(JType(value)),
             _ => Instr::IType(IType(value)),
         }
     }
