@@ -12,12 +12,17 @@ const ICACHE_LINE_LEN: usize = 16;
 const ICACHE_LEN_LINE: usize = ICACHE_SIZE / ICACHE_LINE_LEN;
 
 #[derive(Debug)]
+struct MulDivRegs {
+    hi: u32,
+    lo: u32,
+}
+
+#[derive(Debug)]
 struct R3000 {
     gpr: [u32; 31],
     pc: u32,
     sp: u32,
-    hi: u32,
-    lo: u32,
+    hilo: MulDivRegs,
 }
 
 impl R3000 {
@@ -32,14 +37,23 @@ impl R3000 {
             self.gpr[idx - 1] = val;
         }
     }
+
+    pub fn get_hilo(&self) -> u64 {
+        ((self.hilo.hi as u64) << 32) | (self.hilo.lo as u64)
+    }
+
+    pub fn set_hilo(&mut self, val: u64) {
+        self.hilo.lo = val as u32;
+        self.hilo.hi = (val >> 32) as u32;
+    }
 }
 
 #[derive(Debug)]
 struct COP0 {}
 
 #[derive(Debug, Clone, Copy)]
-struct ICacheLineEntry {
-    tag: bool,
+struct ICacheLine {
+    tag: u32,
     word: [u32; 4],
 }
 
@@ -47,7 +61,7 @@ struct ICacheLineEntry {
 pub struct CPU {
     core: R3000,
     cop0: COP0,
-    icache: [ICacheLineEntry; ICACHE_LEN_LINE],
+    icache: [ICacheLine; ICACHE_LEN_LINE],
 }
 
 impl CPU {
@@ -57,12 +71,11 @@ impl CPU {
                 gpr: [0; 31],
                 pc: 0,
                 sp: 0,
-                hi: 0,
-                lo: 0,
+                hilo: MulDivRegs { lo: 0, hi: 0 },
             },
             cop0: COP0 {},
-            icache: [ICacheLineEntry {
-                tag: false,
+            icache: [ICacheLine {
+                tag: 0,
                 word: [0; 4],
             }; ICACHE_LEN_LINE],
         }
@@ -70,7 +83,7 @@ impl CPU {
 
     fn lookup_icache(&self, addr: u32) -> Option<u32> {
         let line_idx: usize = (addr as usize >> 4) & 0xff;
-        if self.icache[line_idx].tag {
+        if self.icache[line_idx].tag == addr & !0xf {
             Some(self.icache[line_idx].word[((addr >> 2) & 0b11) as usize])
         } else {
             None
@@ -83,7 +96,7 @@ impl CPU {
         for idx in 0..4 {
             self.icache[line_idx].word[idx] = bus.read_u32(start_addr + (idx * 4) as u32);
         }
-        self.icache[line_idx].tag = true;
+        self.icache[line_idx].tag = start_addr;
     }
 
     fn dispatch_itype(&mut self, bus: &mut MemBus, itype: IType) -> Result<(), ()> {

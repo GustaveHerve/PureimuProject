@@ -42,6 +42,24 @@ define_repr_enum! {
     }
 }
 
+define_repr_enum! {
+    pub enum MulDivOp : u8 {
+        MULT = 0b000000,
+        MULTU = 0b000001,
+        DIV = 0b000010,
+        DIVU = 0b000011,
+    }
+}
+
+define_repr_enum! {
+    pub enum HiLoOp : u8 {
+        MFHI = 0b010000,
+        MTHI = 0b010001,
+        MFLO = 0b010010,
+        MTLO = 0b010011,
+    }
+}
+
 impl CPU {
     pub fn alu_reg(&mut self, bus: &MemBus, alu_op: AluRegFunct, rs: u8, rt: u8, rd: u8) {
         let rs_idx = rs as usize;
@@ -49,7 +67,7 @@ impl CPU {
         let rt_idx = rt as usize;
         let rt_val = self.core.get_gpr(rt_idx);
 
-        let res = match alu_op {
+        let res: u32 = match alu_op {
             AluRegFunct::ADD | AluRegFunct::ADDU => rs_val.wrapping_add(rt_val),
             AluRegFunct::SUB | AluRegFunct::SUBU => rs_val.wrapping_sub(rt_val),
             AluRegFunct::SLT => (rs_val.cast_signed() < rt_val.cast_signed()) as u32,
@@ -70,7 +88,7 @@ impl CPU {
         let rs_val = self.core.get_gpr(rs_idx);
         let imm_ex = imm as i16 as i32 as u32;
 
-        let res = match alu_op {
+        let res: u32 = match alu_op {
             AluImmOp::ADDI | AluImmOp::ADDIU => rs_val.wrapping_add(imm_ex),
             AluImmOp::SLTI => (rs_val.cast_signed() < imm_ex.cast_signed()) as u32,
             AluImmOp::SLTIU => (rs_val < imm_ex) as u32,
@@ -91,7 +109,7 @@ impl CPU {
         let rt_idx = rt as usize;
         let rt_val = self.core.get_gpr(rt_idx);
 
-        let res = match shift_op {
+        let res: u32 = match shift_op {
             ShiftFunct::SLL => rt_val << shamt,
             ShiftFunct::SRL => rt_val >> shamt,
             ShiftFunct::SRA => (rt_val.cast_signed() >> shamt) as u32,
@@ -104,7 +122,43 @@ impl CPU {
         self.core.set_gpr(rd_idx, res);
     }
 
-    pub fn muldiv(&mut self, bus: &MemBus, instr: &super::RType) {
-        todo!()
+    pub fn muldiv(&mut self, bus: &MemBus, muldiv_op: MulDivOp, rs: u8, rt: u8, rd: u8, shamt: u8) {
+        let rs_idx = rs as usize;
+        let rs_val = self.core.get_gpr(rs_idx);
+        let rt_idx = rt as usize;
+        let rt_val = self.core.get_gpr(rt_idx);
+
+        // TODO: handle muldiv delay
+        let res: u64 = match muldiv_op {
+            MulDivOp::MULT => (rs_val.cast_signed() as i64 * rt_val.cast_signed() as i64) as u64,
+            MulDivOp::MULTU => (rs_val * rt_val) as u64,
+            MulDivOp::DIV => {
+                if rt_val == 0 {
+                    (rs_val as u64) << 32 | u32::MAX as u64
+                } else {
+                    match rt_val {
+                        0 => {
+                            if (rs_val as i32) >= 0 {
+                                (rs_val as u64) << 32 | u32::MAX as u64
+                            } else {
+                                (rs_val as u64) << 32 | 1
+                            }
+                        }
+                        u32::MAX if rs_val == 0x80000000 => 0x80000000 as u64,
+                        _ => (rs_val.cast_signed() / rt_val.cast_signed()) as u64,
+                    }
+                }
+            }
+            MulDivOp::DIVU => {
+                if rt_val == 0 {
+                    (rs_val as u64) << 32 | u32::MAX as u64
+                } else {
+                    (rs_val / rt_val) as u64
+                }
+            }
+        };
+
+        self.core.hilo.lo = res as u32;
+        self.core.hilo.hi = (res >> 32) as u32;
     }
 }
