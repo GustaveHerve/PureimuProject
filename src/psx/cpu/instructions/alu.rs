@@ -43,7 +43,7 @@ define_repr_enum! {
 }
 
 define_repr_enum! {
-    pub enum MulDivOp : u8 {
+    pub enum MulDivFunct : u8 {
         MULT = 0b000000,
         MULTU = 0b000001,
         DIV = 0b000010,
@@ -52,7 +52,7 @@ define_repr_enum! {
 }
 
 define_repr_enum! {
-    pub enum HiLoOp : u8 {
+    pub enum HiLoFunct : u8 {
         MFHI = 0b010000,
         MTHI = 0b010001,
         MFLO = 0b010010,
@@ -122,7 +122,7 @@ impl CPU {
         self.core.set_gpr(rd_idx, res);
     }
 
-    pub fn muldiv(&mut self, bus: &MemBus, muldiv_op: MulDivOp, rs: u8, rt: u8, rd: u8, shamt: u8) {
+    pub fn muldiv(&mut self, bus: &MemBus, muldiv_op: MulDivFunct, rs: u8, rt: u8) {
         let rs_idx = rs as usize;
         let rs_val = self.core.get_gpr(rs_idx);
         let rt_idx = rt as usize;
@@ -130,9 +130,9 @@ impl CPU {
 
         // TODO: handle muldiv delay
         let res: u64 = match muldiv_op {
-            MulDivOp::MULT => (rs_val.cast_signed() as i64 * rt_val.cast_signed() as i64) as u64,
-            MulDivOp::MULTU => (rs_val * rt_val) as u64,
-            MulDivOp::DIV => {
+            MulDivFunct::MULT => (rs_val.cast_signed() as i64 * rt_val.cast_signed() as i64) as u64,
+            MulDivFunct::MULTU => (rs_val * rt_val) as u64,
+            MulDivFunct::DIV => {
                 if rt_val == 0 {
                     (rs_val as u64) << 32 | u32::MAX as u64
                 } else {
@@ -144,12 +144,12 @@ impl CPU {
                                 (rs_val as u64) << 32 | 1
                             }
                         }
-                        u32::MAX if rs_val == 0x80000000 => 0x80000000 as u64,
+                        u32::MAX if rs_val == 0x8000_0000 => 0x8000_0000 as u64,
                         _ => (rs_val.cast_signed() / rt_val.cast_signed()) as u64,
                     }
                 }
             }
-            MulDivOp::DIVU => {
+            MulDivFunct::DIVU => {
                 if rt_val == 0 {
                     (rs_val as u64) << 32 | u32::MAX as u64
                 } else {
@@ -160,5 +160,19 @@ impl CPU {
 
         self.core.hilo.lo = res as u32;
         self.core.hilo.hi = (res >> 32) as u32;
+    }
+
+    pub fn move_hilo(&mut self, bus: &MemBus, hilo_op: HiLoFunct, rs: u8, rd: u8) {
+        let rs_idx = rs as usize;
+        let rs_val = self.core.get_gpr(rs_idx);
+        let rd_idx = rd as usize;
+        let rd_val = self.core.get_gpr(rd_idx);
+
+        match hilo_op {
+            HiLoFunct::MFHI => self.core.set_gpr(rd_idx, self.core.hilo.hi),
+            HiLoFunct::MTHI => self.core.hilo.hi = rs_val,
+            HiLoFunct::MFLO => self.core.set_gpr(rd_idx, self.core.hilo.lo),
+            HiLoFunct::MTLO => self.core.hilo.lo = rs_val,
+        }
     }
 }

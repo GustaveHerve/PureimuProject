@@ -1,4 +1,15 @@
+mod io;
+
 const MEMSEG_MASK: u32 = 0xe000_0000;
+
+pub(super) const MAIN_RAM_SIZE: usize = 2048 << 10;
+pub(super) const EXPANSION_1_SIZE: usize = 8192 << 10;
+pub(super) const SCRATCHPAD_SIZE: usize = 1 << 10;
+pub(super) const IO_SIZE: usize = 8 << 10;
+pub(super) const EXPANSION_2_SIZE: usize = 8 << 10;
+pub(super) const EXPANSION_3_SIZE: usize = 2048 << 10;
+pub(super) const BIOS_SIZE: usize = 512 << 10;
+pub(super) const IO_CACHE_SIZE: usize = 512;
 
 enum MemSegment {
     KUSEG,
@@ -12,26 +23,36 @@ struct MemAddr {
     pub offset: u32,
 }
 
-pub struct MemBus {}
+pub struct MemBus {
+    pub main_ram: [u8; MAIN_RAM_SIZE],
+    pub expansion_1: [u8; EXPANSION_1_SIZE],
+    pub scratchpad: [u8; SCRATCHPAD_SIZE],
+    pub io: [u8; IO_SIZE],
+    pub expansion_2: [u8; EXPANSION_2_SIZE],
+    pub expansion_3: [u8; EXPANSION_3_SIZE],
+    pub bios: [u8; BIOS_SIZE],
+    pub io_cache: [u8; IO_CACHE_SIZE],
+}
 
-impl MemAddr {
-    pub fn from_u32(addr: u32) -> MemAddr {
+impl From<u32> for MemAddr {
+    fn from(value: u32) -> Self {
         MemAddr {
-            seg: match (addr & MEMSEG_MASK) >> 29 {
-                0x000..=0x011 => MemSegment::KUSEG,
-                0x100 => MemSegment::KSEG0,
-                0x101 => MemSegment::KSEG1,
-                0x110..=0x111 => MemSegment::KSEG2,
+            seg: match (value & MEMSEG_MASK) >> 29 {
+                0b000..=0b011 => MemSegment::KUSEG,
+                0b100 => MemSegment::KSEG0,
+                0b101 => MemSegment::KSEG1,
+                0b110..=0b111 => MemSegment::KSEG2,
                 _ => unreachable!("Invalid segment value in memory address"),
             },
-            offset: addr & !MEMSEG_MASK,
+            offset: value & !MEMSEG_MASK,
         }
     }
 }
 
 impl MemBus {
+    // TODO: reading from memory (except Scratchpad) should have a 6 cycles delay
     fn internal_read(&self, addr: u32) -> u32 {
-        let addr: MemAddr = MemAddr::from_u32(addr);
+        let addr: MemAddr = addr.into();
         match addr.offset {
             0x0000_0000..0x1f00_0000 => todo!(), // Main RAM
             0x1f00_0000..0x1f80_0000 => todo!(), // Expansion Region 1

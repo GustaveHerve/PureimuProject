@@ -49,10 +49,32 @@ define_repr_enum! {
     }
 }
 
+impl From<BranchRt> for Branch {
+    fn from(value: BranchRt) -> Self {
+        match value {
+            BranchRt::BLTZ => Self::BLTZ,
+            BranchRt::BGEZ => Self::BGEZ,
+            BranchRt::BLTZAL => Self::BLTZAL,
+            BranchRt::BGEZAL => Self::BGEZAL,
+        }
+    }
+}
+
+impl From<BranchOp> for Branch {
+    fn from(value: BranchOp) -> Self {
+        match value {
+            BranchOp::BEQ => Self::BEQ,
+            BranchOp::BNE => Self::BNE,
+            BranchOp::BLEZ => Self::BLEZ,
+            BranchOp::BGTZ => Self::BGTZ,
+        }
+    }
+}
+
 impl CPU {
     // TODO: handle jump delay
     // TODO: handle exceptions
-    pub fn jmp_imm(&mut self, bus: &MemBus, jmp_op: JmpImmOp, rs: u8, imm: u32) {
+    pub fn jmp_imm(&mut self, bus: &MemBus, jmp_op: JmpImmOp, imm: u32) {
         if let JmpImmOp::JAL = jmp_op {
             self.core.set_gpr(31, self.core.pc + 8);
         }

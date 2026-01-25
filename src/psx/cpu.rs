@@ -1,15 +1,18 @@
 mod instructions;
+mod timers;
 
-use instructions::alu::{AluImmOp, AluRegFunct, ShiftFunct};
-use instructions::load_store::{LoadOp, StoreOp};
 use instructions::{IType, Instr, JType, RType};
+
+use instructions::alu::{AluImmOp, AluRegFunct, HiLoFunct, MulDivFunct, ShiftFunct};
+use instructions::jmp::{Branch, BranchOp, BranchRt, JmpImmOp, JmpRegFunct};
+use instructions::load_store::{LoadOp, StoreOp};
 
 use crate::psx::mem::MemBus;
 
 const ICACHE_SIZE: usize = 4096;
-const ICACHE_LINE_LEN: usize = 16;
+const ICACHE_LINE_SIZE: usize = 16;
 
-const ICACHE_LEN_LINE: usize = ICACHE_SIZE / ICACHE_LINE_LEN;
+const ICACHE_LINE_LEN: usize = ICACHE_SIZE / ICACHE_LINE_SIZE;
 
 #[derive(Debug)]
 struct MulDivRegs {
@@ -61,7 +64,7 @@ struct ICacheLine {
 pub struct CPU {
     core: R3000,
     cop0: COP0,
-    icache: [ICacheLine; ICACHE_LEN_LINE],
+    icache: [ICacheLine; ICACHE_LINE_LEN],
 }
 
 impl CPU {
@@ -77,13 +80,13 @@ impl CPU {
             icache: [ICacheLine {
                 tag: 0,
                 word: [0; 4],
-            }; ICACHE_LEN_LINE],
+            }; ICACHE_LINE_LEN],
         }
     }
 
     fn lookup_icache(&self, addr: u32) -> Option<u32> {
         let line_idx: usize = (addr as usize >> 4) & 0xff;
-        if self.icache[line_idx].tag == addr & !0xf {
+        if self.icache[line_idx].tag == (addr & !0xf) {
             Some(self.icache[line_idx].word[((addr >> 2) & 0b11) as usize])
         } else {
             None
@@ -106,6 +109,12 @@ impl CPU {
             self.load(bus, load_op, itype.rs(), itype.rt(), itype.imm());
         } else if let Ok(store_op) = StoreOp::try_from(itype.op()) {
             self.store(bus, store_op, itype.rs(), itype.rt(), itype.imm());
+        } else if let Ok(branch_op) = BranchOp::try_from(itype.op()) {
+            let op: Branch = branch_op.into();
+            self.branch(bus, op, itype.rs(), itype.rt(), itype.imm());
+        } else if let Ok(branch_rt) = BranchRt::try_from(itype.rt()) {
+            let op: Branch = branch_rt.into();
+            self.branch(bus, op, itype.rs(), itype.rt(), itype.imm());
         } else {
             return Err(());
         }
@@ -114,7 +123,13 @@ impl CPU {
     }
 
     fn dispatch_jtype(&mut self, bus: &MemBus, jtype: JType) -> Result<(), ()> {
-        todo!()
+        if let Ok(jmp_op) = JmpImmOp::try_from(jtype.op()) {
+            self.jmp_imm(bus, jmp_op, jtype.imm());
+        } else {
+            return Err(());
+        }
+
+        Ok(())
     }
 
     fn dispatch_rtype(&mut self, bus: &MemBus, rtype: RType) -> Result<(), ()> {
@@ -129,6 +144,12 @@ impl CPU {
                 rtype.rd(),
                 rtype.shamt(),
             );
+        } else if let Ok(muldiv_op) = MulDivFunct::try_from(rtype.funct()) {
+            self.muldiv(bus, muldiv_op, rtype.rs(), rtype.rt());
+        } else if let Ok(hilo_op) = HiLoFunct::try_from(rtype.funct()) {
+            self.move_hilo(bus, hilo_op, rtype.rs(), rtype.rd());
+        } else if let Ok(jmp_op) = JmpRegFunct::try_from(rtype.funct()) {
+            self.jmp_reg(bus, jmp_op, rtype.rs(), rtype.rd());
         } else {
             return Err(());
         }
