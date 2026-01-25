@@ -1,3 +1,4 @@
+mod exceptions;
 mod instructions;
 mod timers;
 
@@ -52,7 +53,9 @@ impl R3000 {
 }
 
 #[derive(Debug)]
-struct COP0 {}
+struct COP0 {
+    pub regs: [u32; 64],
+}
 
 #[derive(Debug, Clone, Copy)]
 struct ICacheLine {
@@ -76,7 +79,7 @@ impl CPU {
                 sp: 0,
                 hilo: MulDivRegs { lo: 0, hi: 0 },
             },
-            cop0: COP0 {},
+            cop0: COP0 { regs: [0; 64] },
             icache: [ICacheLine {
                 tag: 0,
                 word: [0; 4],
@@ -171,5 +174,8 @@ impl CPU {
         }) else {
             panic!("Invalid instruction (PC={:#x})", self.core.pc);
         };
+
+        // TODO: PC increment should be done right after fetching
+        self.core.pc += 1;
     }
 }

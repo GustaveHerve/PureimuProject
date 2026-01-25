@@ -1,6 +1,9 @@
 use crate::{
     define_repr_enum,
-    psx::{cpu::CPU, mem::MemBus},
+    psx::{
+        cpu::{CPU, exceptions::ExceptionType, instructions::alu},
+        mem::MemBus,
+    },
 };
 
 define_repr_enum! {
@@ -77,7 +80,23 @@ impl CPU {
             AluRegFunct::XOR => rs_val ^ rt_val,
             AluRegFunct::NOR => u32::MAX ^ (rs_val | rt_val),
         };
-        // TODO: handle overflow traps for ADDU and SUBU
+
+        // Overflow exception check
+        match alu_op {
+            AluRegFunct::ADD => {
+                if rs_val >> 31 == rt_val >> 31 && res >> 31 != rs_val >> 31 {
+                    self.throw_exception(bus, ExceptionType::Overflow);
+                    return;
+                }
+            }
+            AluRegFunct::SUB => {
+                if rs_val >> 31 != rt_val >> 31 && res >> 31 != rs_val >> 31 {
+                    self.throw_exception(bus, ExceptionType::Overflow);
+                    return;
+                }
+            }
+            _ => (),
+        }
 
         let rd_idx = rd as usize;
         self.core.set_gpr(rd_idx, res);
