@@ -57,6 +57,17 @@ struct COP0 {
     pub regs: [u32; 64],
 }
 
+impl COP0 {
+    pub fn get_reg(&self, idx: usize) -> u32 {
+        assert!(idx < 64);
+        self.regs[idx]
+    }
+    pub fn set_reg(&mut self, idx: usize, value: u32) {
+        assert!(idx < 64);
+        self.regs[idx] = value;
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct ICacheLine {
     tag: u32,
