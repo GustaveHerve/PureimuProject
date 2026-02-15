@@ -6,50 +6,6 @@ pub mod special;
 
 use bitfield::bitfield;
 
-#[macro_export]
-macro_rules! define_repr_enum {
-    (
-        $(#[$meta:meta])*
-        $vis:vis enum $name:ident : $repr:ty {
-            $(
-                $variant:ident = $value:expr
-            ),+ $(,)?
-        }
-    ) =>
-    {
-        $(#[$meta])*
-        #[repr($repr)]
-        $vis enum $name {
-            $(
-                $variant = $value,
-            )+
-        }
-
-        impl ::core::convert::TryFrom<$repr> for $name {
-            type Error = &'static str;
-
-            fn try_from(value: $repr) -> Result<Self, Self::Error> {
-                match value {
-                    $(
-                        $value => Ok($name::$variant),
-                    )+
-                    _ => Err(concat!("Invalid conversion to ", stringify!($name))),
-                }
-            }
-        }
-    };
-    (
-        $(#[$meta:meta])*
-        $vis:vis enum $name:ident : $repr:ty {
-        }
-    ) =>
-    {
-        $(#[$meta])*
-        $vis enum $name {
-        }
-    };
-}
-
 bitfield! {
     pub struct IType(u32);
     impl Debug;

@@ -2,12 +2,12 @@ mod exceptions;
 mod instructions;
 mod timers;
 
-use instructions::{IType, Instr, JType, RType};
+use instructions::alu::AluImmOp;
+use instructions::{IType, JType, RType};
 
-use instructions::alu::{AluImmOp, AluRegFunct, HiLoFunct, MulDivFunct, ShiftFunct};
-use instructions::jmp::{Branch, BranchOp, BranchRt, JmpImmOp, JmpRegFunct};
-use instructions::load_store::{LoadOp, StoreOp};
-
+use crate::psx::cpu::instructions::alu::{AluRegOp, HiLoOp, MulDivOp};
+use crate::psx::cpu::instructions::jmp::BranchOp;
+use crate::psx::cpu::instructions::load_store::{LoadOp, StoreOp};
 use crate::psx::mem::MemBus;
 
 const ICACHE_SIZE: usize = 4096;
@@ -54,7 +54,7 @@ impl R3000 {
 
 #[derive(Debug)]
 struct COP0 {
-    pub regs: [u32; 64],
+    pub regs: [u32; 16],
 }
 
 impl COP0 {
@@ -90,7 +90,7 @@ impl CPU {
                 sp: 0,
                 hilo: MulDivRegs { lo: 0, hi: 0 },
             },
-            cop0: COP0 { regs: [0; 64] },
+            cop0: COP0 { regs: [0; 16] },
             icache: [ICacheLine {
                 tag: 0,
                 word: [0; 4],
@@ -116,76 +116,82 @@ impl CPU {
         self.icache[line_idx].tag = start_addr;
     }
 
-    fn dispatch_itype(&mut self, bus: &mut MemBus, itype: IType) -> Result<(), ()> {
-        if let Ok(alu_op) = AluImmOp::try_from(itype.op()) {
-            self.alu_imm(bus, alu_op, itype.rs(), itype.rt(), itype.imm());
-        } else if let Ok(load_op) = LoadOp::try_from(itype.op()) {
-            self.load(bus, load_op, itype.rs(), itype.rt(), itype.imm());
-        } else if let Ok(store_op) = StoreOp::try_from(itype.op()) {
-            self.store(bus, store_op, itype.rs(), itype.rt(), itype.imm());
-        } else if let Ok(branch_op) = BranchOp::try_from(itype.op()) {
-            let op: Branch = branch_op.into();
-            self.branch(bus, op, itype.rs(), itype.rt(), itype.imm());
-        } else if let Ok(branch_rt) = BranchRt::try_from(itype.rt()) {
-            let op: Branch = branch_rt.into();
-            self.branch(bus, op, itype.rs(), itype.rt(), itype.imm());
-        } else {
-            return Err(());
+    fn decode(&mut self, bus: &mut MemBus, raw_instr: u32) {
+        let i_instr = IType(raw_instr);
+        match i_instr.op() {
+            0x00 => self.decode_special(bus, RType(raw_instr)),
+            0x01 => self.branch(bus, i_instr, BranchOp::BCondZ),
+            0x02 => self.j(bus, JType(raw_instr)),
+            0x03 => self.jal(bus, JType(raw_instr)),
+            0x04 => self.branch(bus, i_instr, BranchOp::BEQ),
+            0x05 => self.branch(bus, i_instr, BranchOp::BNE),
+            0x06 => self.branch(bus, i_instr, BranchOp::BLEZ),
+            0x07 => self.branch(bus, i_instr, BranchOp::BGTZ),
+            0x08 => self.alu_imm(bus, i_instr, AluImmOp::ADDI),
+            0x09 => self.alu_imm(bus, i_instr, AluImmOp::ADDIU),
+            0x0a => self.alu_imm(bus, i_instr, AluImmOp::SLTI),
+            0x0b => self.alu_imm(bus, i_instr, AluImmOp::SLTIU),
+            0x0c => self.alu_imm(bus, i_instr, AluImmOp::ANDI),
+            0x0d => self.alu_imm(bus, i_instr, AluImmOp::ORI),
+            0x0e => self.alu_imm(bus, i_instr, AluImmOp::XORI),
+            0x0f => self.alu_imm(bus, i_instr, AluImmOp::LUI),
+            0x10..=0x13 => todo!("COPn not implemented yet"),
+            0x20 => self.load(bus, i_instr, LoadOp::LB),
+            0x21 => self.load(bus, i_instr, LoadOp::LH),
+            0x22 => self.load(bus, i_instr, LoadOp::LWL),
+            0x23 => self.load(bus, i_instr, LoadOp::LW),
+            0x24 => self.load(bus, i_instr, LoadOp::LBU),
+            0x25 => self.load(bus, i_instr, LoadOp::LHU),
+            0x26 => self.load(bus, i_instr, LoadOp::LWR),
+            0x28 => self.store(bus, i_instr, StoreOp::SB),
+            0x29 => self.store(bus, i_instr, StoreOp::SH),
+            0x2a => self.store(bus, i_instr, StoreOp::SWL),
+            0x2b => self.store(bus, i_instr, StoreOp::SW),
+            0x2e => self.store(bus, i_instr, StoreOp::SWR),
+            0x30 => self.lwc0(bus, i_instr),
+            x @ 0x31..=0x33 => todo!("LWC{} not implemented yet", x),
+            0x38 => self.swc0(bus, i_instr),
+            x @ 0x39..=0x3b => todo!("SWC{} not implemented yet", x),
+            _ => todo!("Reserved Instruction Exception handling not implemented yet"),
         }
-
-        Ok(())
     }
 
-    fn dispatch_jtype(&mut self, bus: &MemBus, jtype: JType) -> Result<(), ()> {
-        if let Ok(jmp_op) = JmpImmOp::try_from(jtype.op()) {
-            self.jmp_imm(bus, jmp_op, jtype.imm());
-        } else {
-            return Err(());
+    fn decode_special(&mut self, bus: &mut MemBus, instr: RType) {
+        match instr.funct() {
+            0x00 => todo!("SLL not implemented yet"),
+            0x02 => todo!("SRL not implemented yet"),
+            0x08 => self.jr(bus, instr),
+            0x09 => self.jalr(bus, instr),
+            0x0c => todo!("SYSCALL not implemented yet"),
+            0x0d => todo!("BREAK not implemented yet"),
+            0x10 => self.move_hilo(bus, instr, HiLoOp::MFHI),
+            0x11 => self.move_hilo(bus, instr, HiLoOp::MTHI),
+            0x12 => self.move_hilo(bus, instr, HiLoOp::MFLO),
+            0x13 => self.move_hilo(bus, instr, HiLoOp::MTLO),
+            0x18 => self.muldiv(bus, instr, MulDivOp::MULT),
+            0x19 => self.muldiv(bus, instr, MulDivOp::MULTU),
+            0x1a => self.muldiv(bus, instr, MulDivOp::DIV),
+            0x1b => self.muldiv(bus, instr, MulDivOp::DIVU),
+            0x20 => self.alu_reg(bus, instr, AluRegOp::ADD),
+            0x21 => self.alu_reg(bus, instr, AluRegOp::ADDU),
+            0x22 => self.alu_reg(bus, instr, AluRegOp::SUB),
+            0x23 => self.alu_reg(bus, instr, AluRegOp::SUBU),
+            0x24 => self.alu_reg(bus, instr, AluRegOp::AND),
+            0x25 => self.alu_reg(bus, instr, AluRegOp::OR),
+            0x26 => self.alu_reg(bus, instr, AluRegOp::XOR),
+            0x27 => self.alu_reg(bus, instr, AluRegOp::NOR),
+            0x2a => self.alu_reg(bus, instr, AluRegOp::SLT),
+            0x2b => self.alu_reg(bus, instr, AluRegOp::SLTU),
+            _ => todo!("Reserved Instruction Exception handling not implemented yet"),
         }
-
-        Ok(())
-    }
-
-    fn dispatch_rtype(&mut self, bus: &MemBus, rtype: RType) -> Result<(), ()> {
-        if let Ok(alu_op) = AluRegFunct::try_from(rtype.funct()) {
-            self.alu_reg(bus, alu_op, rtype.rs(), rtype.rt(), rtype.rd());
-        } else if let Ok(shift_op) = ShiftFunct::try_from(rtype.funct()) {
-            self.shift(
-                bus,
-                shift_op,
-                rtype.rs(),
-                rtype.rt(),
-                rtype.rd(),
-                rtype.shamt(),
-            );
-        } else if let Ok(muldiv_op) = MulDivFunct::try_from(rtype.funct()) {
-            self.muldiv(bus, muldiv_op, rtype.rs(), rtype.rt());
-        } else if let Ok(hilo_op) = HiLoFunct::try_from(rtype.funct()) {
-            self.move_hilo(bus, hilo_op, rtype.rs(), rtype.rd());
-        } else if let Ok(jmp_op) = JmpRegFunct::try_from(rtype.funct()) {
-            self.jmp_reg(bus, jmp_op, rtype.rs(), rtype.rd());
-        } else {
-            return Err(());
-        }
-
-        Ok(())
     }
 
     pub fn fetch_decode_execute(&mut self, bus: &mut MemBus) {
-        let instr: Instr = if let Some(raw_instr) = self.lookup_icache(self.core.pc) {
-            raw_instr
-        } else {
-            bus.read_u32(self.core.pc)
-        }
-        .into();
-        let Ok(_) = (match instr {
-            Instr::IType(itype) => self.dispatch_itype(bus, itype),
-            Instr::JType(jtype) => self.dispatch_jtype(bus, jtype),
-            Instr::RType(rtype) => self.dispatch_rtype(bus, rtype),
-        }) else {
-            panic!("Invalid instruction (PC={:#x})", self.core.pc);
-        };
+        let instr: u32 = self
+            .lookup_icache(self.core.pc)
+            .unwrap_or_else(|| bus.read_u32(self.core.pc));
 
+        self.decode(bus, instr);
         // TODO: PC increment should be done right after fetching
         self.core.pc += 1;
     }

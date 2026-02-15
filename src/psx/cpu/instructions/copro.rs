@@ -1,34 +1,47 @@
-use crate::{
-    define_repr_enum,
-    psx::cpu::{COP0, CPU},
+use crate::psx::{
+    cpu::{
+        CPU,
+        instructions::{IType, RType},
+    },
+    mem::MemBus,
 };
 
 pub const SR_IDX: usize = 12;
 pub const CAUSE_IDX: usize = 13;
 pub const EPC_IDX: usize = 14;
 
-define_repr_enum! {
-    pub enum MoveFromCoproRs : u8 {
-        MFC = 0b00000,
-        CFC = 0b00010,
-        MTC = 0b00100,
-        CTC = 0b00110,
-    }
-}
-
 impl CPU {
     // TODO: handle coprocessor unusable exceptions
-    pub fn move_copro(&mut self, move_op: MoveFromCoproRs, op: u8, rt: u8, rd: u8) {
-        let rt_idx = rt as usize;
-        let rt_val = self.core.get_gpr(rt_idx);
-        let rd_idx = rd as usize;
-        let rd_val = self.core.get_gpr(rd_idx);
 
-        match move_op {
-            MoveFromCoproRs::MFC => self.core.get_gpr(rt_idx)
-            MoveFromCoproRs::CFC => todo!(),
-            MoveFromCoproRs::MTC => todo!(),
-            MoveFromCoproRs::CTC => todo!(),
-        }
+    pub fn move_from_cop0(&mut self, instr: RType) {
+        let rt_idx = instr.rt() as usize;
+        let rd_idx = instr.rd() as usize;
+
+        self.core.set_gpr(rt_idx, self.cop0.get_reg(rd_idx));
+    }
+
+    pub fn move_to_cop0(&mut self, instr: RType) {
+        let rt_idx = instr.rt() as usize;
+        let rd_idx = instr.rd() as usize;
+
+        self.cop0.set_reg(rd_idx, self.core.get_gpr(rt_idx));
+    }
+
+    pub fn lwc0(&mut self, bus: &MemBus, instr: IType) {
+        let rs_idx = instr.rs() as usize;
+        let rs_val = self.core.get_gpr(rs_idx);
+        let rt_idx = instr.rt() as usize;
+
+        let addr = rs_val.wrapping_add_signed(instr.imm().cast_signed() as i32);
+        self.cop0.set_reg(rt_idx, bus.read_u32(addr));
+    }
+
+    pub fn swc0(&mut self, bus: &mut MemBus, instr: IType) {
+        let rs_idx = instr.rs() as usize;
+        let rs_val = self.core.get_gpr(rs_idx);
+        let rt_idx = instr.rt() as usize;
+
+        let addr = rs_val.wrapping_add_signed(instr.imm().cast_signed() as i32);
+        bus.write_u32(addr, self.cop0.get_reg(rt_idx));
     }
 }

@@ -1,157 +1,151 @@
-use crate::{
-    define_repr_enum,
-    psx::{
-        cpu::{CPU, exceptions::ExceptionType, instructions::alu},
-        mem::MemBus,
+use crate::psx::{
+    cpu::{
+        CPU,
+        exceptions::ExceptionType,
+        instructions::{IType, RType},
     },
+    mem::MemBus,
 };
 
-define_repr_enum! {
-    pub enum AluRegFunct : u8 {
-        ADD = 0b100000,
-        ADDU = 0b100001,
-        SUB = 0b100010,
-        SUBU = 0b100011,
-        SLT = 0b101010,
-        SLTU = 0b101011,
-        AND = 0b100100,
-        OR = 0b100101,
-        XOR = 0b100110,
-        NOR = 0b100111,
-    }
+pub enum AluRegOp {
+    ADD,
+    ADDU,
+    SUB,
+    SUBU,
+    SLT,
+    SLTU,
+    AND,
+    OR,
+    XOR,
+    NOR,
 }
 
-define_repr_enum! {
-    pub enum AluImmOp : u8 {
-        ADDI = 0b001000,
-        ADDIU = 0b001001,
-        SLTI = 0b001010,
-        SLTIU = 0b001011,
-        ANDI = 0b001100,
-        ORI = 0b001101,
-        XORI = 0b001110,
-        LUI = 0b001111
-    }
+pub enum AluImmOp {
+    ADDI,
+    ADDIU,
+    SLTI,
+    SLTIU,
+    ANDI,
+    ORI,
+    XORI,
+    LUI,
 }
 
-define_repr_enum! {
-    pub enum ShiftFunct : u8 {
-        SLL = 0b000000,
-        SRL = 0b000010,
-        SRA = 0b000011,
-        SLLV = 0b000100,
-        SRLV = 0b000110,
-        SRAV = 0b000111,
-    }
+pub enum ShiftOp {
+    SLL,
+    SRL,
+    SRA,
+    SLLV,
+    SRLV,
+    SRAV,
 }
 
-define_repr_enum! {
-    pub enum MulDivFunct : u8 {
-        MULT = 0b000000,
-        MULTU = 0b000001,
-        DIV = 0b000010,
-        DIVU = 0b000011,
-    }
+pub enum MulDivOp {
+    MULT,
+    MULTU,
+    DIV,
+    DIVU,
 }
 
-define_repr_enum! {
-    pub enum HiLoFunct : u8 {
-        MFHI = 0b010000,
-        MTHI = 0b010001,
-        MFLO = 0b010010,
-        MTLO = 0b010011,
-    }
+pub enum HiLoOp {
+    MFHI,
+    MTHI,
+    MFLO,
+    MTLO,
 }
 
 impl CPU {
-    pub fn alu_reg(&mut self, bus: &MemBus, alu_op: AluRegFunct, rs: u8, rt: u8, rd: u8) {
-        let rs_idx = rs as usize;
+    pub fn alu_reg(&mut self, bus: &MemBus, instr: RType, alu_op: AluRegOp) {
+        let rs_idx = instr.rs() as usize;
         let rs_val = self.core.get_gpr(rs_idx);
-        let rt_idx = rt as usize;
+        let rt_idx = instr.rt() as usize;
         let rt_val = self.core.get_gpr(rt_idx);
 
         let res: u32 = match alu_op {
-            AluRegFunct::ADD | AluRegFunct::ADDU => rs_val.wrapping_add(rt_val),
-            AluRegFunct::SUB | AluRegFunct::SUBU => rs_val.wrapping_sub(rt_val),
-            AluRegFunct::SLT => (rs_val.cast_signed() < rt_val.cast_signed()) as u32,
-            AluRegFunct::SLTU => (rs_val < rt_val) as u32,
-            AluRegFunct::AND => rs_val & rt_val,
-            AluRegFunct::OR => rs_val | rt_val,
-            AluRegFunct::XOR => rs_val ^ rt_val,
-            AluRegFunct::NOR => u32::MAX ^ (rs_val | rt_val),
+            AluRegOp::ADD | AluRegOp::ADDU => rs_val.wrapping_add(rt_val),
+            AluRegOp::SUB | AluRegOp::SUBU => rs_val.wrapping_sub(rt_val),
+            AluRegOp::SLT => (rs_val.cast_signed() < rt_val.cast_signed()) as u32,
+            AluRegOp::SLTU => (rs_val < rt_val) as u32,
+            AluRegOp::AND => rs_val & rt_val,
+            AluRegOp::OR => rs_val | rt_val,
+            AluRegOp::XOR => rs_val ^ rt_val,
+            AluRegOp::NOR => u32::MAX ^ (rs_val | rt_val),
         };
 
         // Overflow exception check
         match alu_op {
-            AluRegFunct::ADD => {
-                if rs_val >> 31 == rt_val >> 31 && res >> 31 != rs_val >> 31 {
-                    self.throw_exception(bus, ExceptionType::Overflow);
+            AluRegOp::ADD => {
+                if (rs_val >> 31 == rt_val >> 31) && (res >> 31 != rs_val >> 31) {
+                    self.cop0
+                        .throw_exception(self.core.pc, ExceptionType::Overflow);
                     return;
                 }
             }
-            AluRegFunct::SUB => {
-                if rs_val >> 31 != rt_val >> 31 && res >> 31 != rs_val >> 31 {
-                    self.throw_exception(bus, ExceptionType::Overflow);
+            AluRegOp::SUB => {
+                if (rs_val >> 31 != rt_val >> 31) && (res >> 31 != rs_val >> 31) {
+                    self.cop0
+                        .throw_exception(self.core.pc, ExceptionType::Overflow);
                     return;
                 }
             }
             _ => (),
         }
 
-        let rd_idx = rd as usize;
+        let rd_idx = instr.rd() as usize;
         self.core.set_gpr(rd_idx, res);
     }
 
-    pub fn alu_imm(&mut self, bus: &MemBus, alu_op: AluImmOp, rs: u8, rt: u8, imm: u16) {
-        let rs_idx = rs as usize;
+    pub fn alu_imm(&mut self, bus: &MemBus, instr: IType, alu_op: AluImmOp) {
+        let rs_idx = instr.rs() as usize;
         let rs_val = self.core.get_gpr(rs_idx);
-        let imm_ex = imm as i16 as i32 as u32;
+        let imm_ex = instr.imm() as i16 as i32 as u32;
 
         let res: u32 = match alu_op {
             AluImmOp::ADDI | AluImmOp::ADDIU => rs_val.wrapping_add(imm_ex),
             AluImmOp::SLTI => (rs_val.cast_signed() < imm_ex.cast_signed()) as u32,
             AluImmOp::SLTIU => (rs_val < imm_ex) as u32,
-            AluImmOp::ANDI => rs_val & (imm as u32),
-            AluImmOp::ORI => rs_val | (imm as u32),
-            AluImmOp::XORI => rs_val ^ (imm as u32),
-            AluImmOp::LUI => (imm as u32) << 16,
+            AluImmOp::ANDI => rs_val & (instr.imm() as u32),
+            AluImmOp::ORI => rs_val | (instr.imm() as u32),
+            AluImmOp::XORI => rs_val ^ (instr.imm() as u32),
+            AluImmOp::LUI => (instr.imm() as u32) << 16,
         };
+
         // TODO: handle overflow traps for ADDIU and SUBIU
 
-        let rt_idx = rt as usize;
+        let rt_idx = instr.rt() as usize;
         self.core.set_gpr(rt_idx, res);
     }
 
-    pub fn shift(&mut self, bus: &MemBus, shift_op: ShiftFunct, rs: u8, rt: u8, rd: u8, shamt: u8) {
-        let rs_idx = rs as usize;
+    pub fn shift(&mut self, bus: &MemBus, instr: RType, shift_op: ShiftOp) {
+        let rs_idx = instr.rs() as usize;
         let rs_val = self.core.get_gpr(rs_idx);
-        let rt_idx = rt as usize;
+        let rt_idx = instr.rt() as usize;
         let rt_val = self.core.get_gpr(rt_idx);
 
         let res: u32 = match shift_op {
-            ShiftFunct::SLL => rt_val << shamt,
-            ShiftFunct::SRL => rt_val >> shamt,
-            ShiftFunct::SRA => (rt_val.cast_signed() >> shamt) as u32,
-            ShiftFunct::SLLV => rt_val << (rs_val & 0x1f),
-            ShiftFunct::SRLV => rt_val >> (rs_val & 0x1f),
-            ShiftFunct::SRAV => (rt_val.cast_signed() >> (rs_val & 0x1f)) as u32,
+            ShiftOp::SLL => rt_val << instr.shamt(),
+            ShiftOp::SRL => rt_val >> instr.shamt(),
+            ShiftOp::SRA => (rt_val.cast_signed() >> instr.shamt()) as u32,
+            ShiftOp::SLLV => rt_val << (rs_val & 0x1f),
+            ShiftOp::SRLV => rt_val >> (rs_val & 0x1f),
+            ShiftOp::SRAV => (rt_val.cast_signed() >> (rs_val & 0x1f)) as u32,
         };
 
-        let rd_idx = rd as usize;
+        let rd_idx = instr.rd() as usize;
         self.core.set_gpr(rd_idx, res);
     }
 
-    pub fn muldiv(&mut self, bus: &MemBus, muldiv_op: MulDivFunct, rs: u8, rt: u8) {
-        let rs_idx = rs as usize;
+    pub fn muldiv(&mut self, bus: &MemBus, instr: RType, muldiv_op: MulDivOp) {
+        let rs_idx = instr.rs() as usize;
         let rs_val = self.core.get_gpr(rs_idx);
-        let rt_idx = rt as usize;
+        let rt_idx = instr.rt() as usize;
         let rt_val = self.core.get_gpr(rt_idx);
 
         // TODO: handle muldiv delay
         let res: u64 = match muldiv_op {
-            MulDivFunct::MULT => (rs_val.cast_signed() as i64 * rt_val.cast_signed() as i64) as u64,
-            MulDivFunct::MULTU => (rs_val * rt_val) as u64,
-            MulDivFunct::DIV => {
+            MulDivOp::MULT => (rs_val.cast_signed() as i64 * rt_val.cast_signed() as i64) as u64,
+            MulDivOp::MULTU => (rs_val * rt_val) as u64,
+            MulDivOp::DIV => {
                 if rt_val == 0 {
                     (rs_val as u64) << 32 | u32::MAX as u64
                 } else {
@@ -168,7 +162,7 @@ impl CPU {
                     }
                 }
             }
-            MulDivFunct::DIVU => {
+            MulDivOp::DIVU => {
                 if rt_val == 0 {
                     (rs_val as u64) << 32 | u32::MAX as u64
                 } else {
@@ -181,17 +175,16 @@ impl CPU {
         self.core.hilo.hi = (res >> 32) as u32;
     }
 
-    pub fn move_hilo(&mut self, bus: &MemBus, hilo_op: HiLoFunct, rs: u8, rd: u8) {
-        let rs_idx = rs as usize;
+    pub fn move_hilo(&mut self, bus: &MemBus, instr: RType, hilo_op: HiLoOp) {
+        let rs_idx = instr.rs() as usize;
         let rs_val = self.core.get_gpr(rs_idx);
-        let rd_idx = rd as usize;
-        let rd_val = self.core.get_gpr(rd_idx);
+        let rd_idx = instr.rd() as usize;
 
         match hilo_op {
-            HiLoFunct::MFHI => self.core.set_gpr(rd_idx, self.core.hilo.hi),
-            HiLoFunct::MTHI => self.core.hilo.hi = rs_val,
-            HiLoFunct::MFLO => self.core.set_gpr(rd_idx, self.core.hilo.lo),
-            HiLoFunct::MTLO => self.core.hilo.lo = rs_val,
+            HiLoOp::MFHI => self.core.set_gpr(rd_idx, self.core.hilo.hi),
+            HiLoOp::MTHI => self.core.hilo.hi = rs_val,
+            HiLoOp::MFLO => self.core.set_gpr(rd_idx, self.core.hilo.lo),
+            HiLoOp::MTLO => self.core.hilo.lo = rs_val,
         }
     }
 }

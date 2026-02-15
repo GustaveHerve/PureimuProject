@@ -1,12 +1,9 @@
-use crate::{
-    define_repr_enum,
-    psx::{
-        cpu::{
-            CPU,
-            instructions::copro::{CAUSE_IDX, EPC_IDX, SR_IDX},
-        },
-        mem::MemBus,
+use crate::psx::{
+    cpu::{
+        COP0, CPU,
+        instructions::copro::{CAUSE_IDX, EPC_IDX, SR_IDX},
     },
+    mem::MemBus,
 };
 
 use bitfield::bitfield;
@@ -97,14 +94,28 @@ const USER_MODE: u8 = 1;
 const INTERRUPT_DISABLE: u8 = 0;
 const INTERRUPT_ENABLE: u8 = 1;
 
-impl CPU {
-    pub fn throw_exception(&mut self, bus: &MemBus, exception_type: ExceptionType) {
-        let mut cause = CAUSE(self.cop0.get_reg(CAUSE_IDX));
-        let mut sr = SR(self.cop0.get_reg(SR_IDX));
+impl COP0 {
+    pub fn rfe(&mut self) {
+        let mut sr = SR(self.get_reg(SR_IDX));
+
+        // Restore User/Kernel mode and Interrupt Enable flags
+        sr.set_iec(sr.iep());
+        sr.set_iep(sr.ieo());
+
+        sr.set_kuc(sr.kup());
+        sr.set_kup(sr.kuo());
+
+        // Update SR
+        self.set_reg(SR_IDX, sr.0);
+    }
+
+    pub fn throw_exception(&mut self, pc: u32, exception_type: ExceptionType) {
+        let mut cause = CAUSE(self.get_reg(CAUSE_IDX));
+        let mut sr = SR(self.get_reg(SR_IDX));
 
         // Set EPC
         // TODO: pass each instruction address as argument instead
-        self.cop0.set_reg(EPC_IDX, self.core.pc);
+        self.set_reg(EPC_IDX, pc);
 
         let vector_table: &[u32; 4] = if sr.bev() == 1 {
             &EXCEPTION_VECTORS
@@ -131,6 +142,6 @@ impl CPU {
         sr.set_kuc(KERNEL_MODE);
 
         // Update SR
-        self.cop0.set_reg(SR_IDX, sr.0);
+        self.set_reg(SR_IDX, sr.0);
     }
 }
