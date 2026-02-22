@@ -10,8 +10,22 @@ pub const SR_IDX: usize = 12;
 pub const CAUSE_IDX: usize = 13;
 pub const EPC_IDX: usize = 14;
 
+const COP0: u8 = 0x10;
+const COP1: u8 = 0x11;
+const COP2: u8 = 0x12;
+const COP3: u8 = 0x13;
+
 impl CPU {
     // TODO: handle coprocessor unusable exceptions
+
+    pub fn decode_cop0(&mut self, instr: RType) {
+        match instr.rs() {
+            0b00000 | 0b00010 => self.move_from_cop0(instr),
+            0b00100 | 0b00110 => self.move_to_cop0(instr),
+            0b10000 if instr.funct() == 0b010000 => self.cop0.rfe(),
+            _ => todo!(),
+        }
+    }
 
     pub fn move_from_cop0(&mut self, instr: RType) {
         let rt_idx = instr.rt() as usize;
@@ -43,5 +57,9 @@ impl CPU {
 
         let addr = rs_val.wrapping_add_signed(instr.imm().cast_signed() as i32);
         bus.write_u32(addr, self.cop0.get_reg(rt_idx));
+    }
+
+    pub fn decode_cop2(&mut self, instr: RType) {
+        todo!("COP2 instructions not yet implemented")
     }
 }

@@ -5,7 +5,7 @@ mod timers;
 use instructions::alu::AluImmOp;
 use instructions::{IType, JType, RType};
 
-use crate::psx::cpu::instructions::alu::{AluRegOp, HiLoOp, MulDivOp};
+use crate::psx::cpu::instructions::alu::{AluRegOp, HiLoOp, MulDivOp, ShiftOp};
 use crate::psx::cpu::instructions::jmp::BranchOp;
 use crate::psx::cpu::instructions::load_store::{LoadOp, StoreOp};
 use crate::psx::mem::MemBus;
@@ -135,7 +135,9 @@ impl CPU {
             0x0d => self.alu_imm(bus, i_instr, AluImmOp::ORI),
             0x0e => self.alu_imm(bus, i_instr, AluImmOp::XORI),
             0x0f => self.alu_imm(bus, i_instr, AluImmOp::LUI),
-            0x10..=0x13 => todo!("COPn not implemented yet"),
+            0x10 => self.decode_cop0(RType(raw_instr)),
+            0x12 => self.decode_cop2(RType(raw_instr)),
+            0x11 | 0x13 => todo!("Unusable coprocessor exception not implemented yet"),
             0x20 => self.load(bus, i_instr, LoadOp::LB),
             0x21 => self.load(bus, i_instr, LoadOp::LH),
             0x22 => self.load(bus, i_instr, LoadOp::LWL),
@@ -158,8 +160,12 @@ impl CPU {
 
     fn decode_special(&mut self, bus: &mut MemBus, instr: RType) {
         match instr.funct() {
-            0x00 => todo!("SLL not implemented yet"),
-            0x02 => todo!("SRL not implemented yet"),
+            0x00 => self.shift(bus, instr, ShiftOp::SLL),
+            0x02 => self.shift(bus, instr, ShiftOp::SRL),
+            0x03 => self.shift(bus, instr, ShiftOp::SRA),
+            0x04 => self.shift(bus, instr, ShiftOp::SLLV),
+            0x06 => self.shift(bus, instr, ShiftOp::SRLV),
+            0x07 => self.shift(bus, instr, ShiftOp::SRAV),
             0x08 => self.jr(bus, instr),
             0x09 => self.jalr(bus, instr),
             0x0c => todo!("SYSCALL not implemented yet"),
