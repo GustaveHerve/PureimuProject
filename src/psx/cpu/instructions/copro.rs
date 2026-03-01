@@ -6,14 +6,17 @@ use crate::psx::{
     mem::MemBus,
 };
 
+pub const BPC_IDX: usize = 3;
+pub const BDA_IDX: usize = 5;
+pub const TAR_IDX: usize = 6;
+pub const DCIC_IDX: usize = 7;
+pub const BADA_IDX: usize = 8;
+pub const BDAM_IDX: usize = 9;
+pub const BPCM_IDX: usize = 11;
 pub const SR_IDX: usize = 12;
 pub const CAUSE_IDX: usize = 13;
 pub const EPC_IDX: usize = 14;
-
-const COP0: u8 = 0x10;
-const COP1: u8 = 0x11;
-const COP2: u8 = 0x12;
-const COP3: u8 = 0x13;
+pub const PRID: usize = 15;
 
 impl CPU {
     // TODO: handle coprocessor unusable exceptions

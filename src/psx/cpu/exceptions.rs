@@ -1,7 +1,7 @@
 use crate::psx::{
     cpu::{
         COP0, CPU,
-        instructions::copro::{CAUSE_IDX, EPC_IDX, SR_IDX},
+        instructions::copro::{BADA_IDX, CAUSE_IDX, EPC_IDX, SR_IDX},
     },
     mem::MemBus,
 };
@@ -9,7 +9,7 @@ use crate::psx::{
 use bitfield::bitfield;
 
 bitfield! {
-    struct SR(u32);
+    pub struct SR(u32);
     impl Debug;
     impl new;
 
@@ -39,7 +39,7 @@ bitfield! {
 }
 
 bitfield! {
-    struct CAUSE(u32);
+    pub struct CAUSE(u32);
     impl Debug;
     impl new;
 
@@ -60,15 +60,18 @@ pub enum ExceptionType {
     Reset,
     MemoryLoad,
     MemoryStore,
+    MemoryIFetch,
     BusError,
+    BusErrorIFetch,
     Overflow,
     Interrupt,
     Syscall,
     Breakpoint,
-    ReservedInstr,
-    CopUnusable,
-    MemoryIFetch,
-    BusErrorIFetch,
+    ReservedInstruction,
+    CopUnusable0,
+    CopUnusable1,
+    CopUnusable2,
+    CopUnusable3,
 }
 
 #[repr(u8)]
@@ -109,13 +112,12 @@ impl COP0 {
         self.set_reg(SR_IDX, sr.0);
     }
 
-    pub fn throw_exception(&mut self, pc: u32, exception_type: ExceptionType) {
+    pub fn throw_exception(&mut self, instr_pc: u32, exception_type: ExceptionType) {
         let mut cause = CAUSE(self.get_reg(CAUSE_IDX));
         let mut sr = SR(self.get_reg(SR_IDX));
 
         // Set EPC
-        // TODO: pass each instruction address as argument instead
-        self.set_reg(EPC_IDX, pc);
+        self.set_reg(EPC_IDX, instr_pc);
 
         let vector_table: &[u32; 4] = if sr.bev() == 1 {
             &EXCEPTION_VECTORS
@@ -129,6 +131,8 @@ impl COP0 {
             _ => vector_table[2],
         };
 
+        // Update SR
+
         // User/Kernel mode and Interrupt Enable flags pushed
         // in 3-entry stack of SR
         sr.set_ieo(sr.iep());
@@ -141,7 +145,44 @@ impl COP0 {
         sr.set_iec(INTERRUPT_DISABLE);
         sr.set_kuc(KERNEL_MODE);
 
-        // Update SR
         self.set_reg(SR_IDX, sr.0);
+
+        // Update CAUSE
+        let excode: ExCode = match exception_type {
+            ExceptionType::Reset => ExCode::INT, // TODO: check reset exception behaviour
+            ExceptionType::MemoryLoad | ExceptionType::MemoryIFetch => ExCode::ADEL,
+            ExceptionType::MemoryStore => ExCode::ADES,
+            ExceptionType::BusError => ExCode::DBE,
+            ExceptionType::BusErrorIFetch => ExCode::IBE,
+            ExceptionType::Overflow => ExCode::OVF,
+            ExceptionType::Interrupt => ExCode::INT,
+            ExceptionType::Syscall => ExCode::SYSCALL,
+            ExceptionType::Breakpoint => ExCode::BP,
+            ExceptionType::ReservedInstruction => ExCode::RI,
+            ExceptionType::CopUnusable0
+            | ExceptionType::CopUnusable1
+            | ExceptionType::CopUnusable2
+            | ExceptionType::CopUnusable3 => ExCode::CpU,
+        };
+
+        // Set BadVaddr in case of Address exception
+        match exception_type {
+            ExceptionType::MemoryLoad
+            | ExceptionType::MemoryIFetch
+            | ExceptionType::MemoryStore => self.set_reg(BADA_IDX, instr_pc),
+            _ => (),
+        };
+
+        // Set CE in case of CopUnusable exception
+        match exception_type {
+            ExceptionType::CopUnusable0 => cause.set_ce(0),
+            ExceptionType::CopUnusable1 => cause.set_ce(1),
+            ExceptionType::CopUnusable2 => cause.set_ce(2),
+            ExceptionType::CopUnusable3 => cause.set_ce(3),
+            _ => (),
+        };
+
+        cause.set_exc_code(excode as u8);
+        self.set_reg(CAUSE_IDX, cause.0);
     }
 }

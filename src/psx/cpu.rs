@@ -5,7 +5,9 @@ mod timers;
 use instructions::alu::AluImmOp;
 use instructions::{IType, JType, RType};
 
+use crate::psx::cpu::exceptions::SR;
 use crate::psx::cpu::instructions::alu::{AluRegOp, HiLoOp, MulDivOp, ShiftOp};
+use crate::psx::cpu::instructions::copro::SR_IDX;
 use crate::psx::cpu::instructions::jmp::BranchOp;
 use crate::psx::cpu::instructions::load_store::{LoadOp, StoreOp};
 use crate::psx::mem::MemBus;
@@ -83,7 +85,7 @@ pub struct CPU {
 
 impl CPU {
     pub fn new() -> CPU {
-        CPU {
+        let mut res = CPU {
             core: R3000 {
                 gpr: [0; 31],
                 pc: 0,
@@ -95,7 +97,19 @@ impl CPU {
                 tag: 0,
                 word: [0; 4],
             }; ICACHE_LINE_LEN],
-        }
+        };
+        res.initialize();
+        res
+    }
+
+    fn initialize(&mut self) {
+        let mut sr = SR(self.cop0.get_reg(SR_IDX));
+        sr.set_cu3(0);
+        sr.set_cu2(1);
+        sr.set_cu1(0);
+        sr.set_cu0(1);
+        sr.set_ts(1);
+        self.cop0.set_reg(SR_IDX, sr.0);
     }
 
     fn lookup_icache(&self, addr: u32) -> Option<u32> {
@@ -116,7 +130,7 @@ impl CPU {
         self.icache[line_idx].tag = start_addr;
     }
 
-    fn decode(&mut self, bus: &mut MemBus, raw_instr: u32) {
+    fn decode(&mut self, bus: &mut MemBus, raw_instr: u32, instr_pc: u32) {
         let i_instr = IType(raw_instr);
         match i_instr.op() {
             0x00 => self.decode_special(bus, RType(raw_instr)),
@@ -196,9 +210,8 @@ impl CPU {
         let instr: u32 = self
             .lookup_icache(self.core.pc)
             .unwrap_or_else(|| bus.read_u32(self.core.pc));
-
-        self.decode(bus, instr);
-        // TODO: PC increment should be done right after fetching
+        let prev_pc: u32 = self.core.pc;
         self.core.pc += 1;
+        self.decode(bus, instr, prev_pc);
     }
 }
