@@ -6,13 +6,6 @@ use crate::psx::{
     mem::MemBus,
 };
 
-pub enum BranchRt {
-    BLTZ = 0b00000,
-    BGEZ = 0b00001,
-    BLTZAL = 0b10000,
-    BGEZAL = 0b10001,
-}
-
 pub enum BranchOp {
     BCondZ,
 

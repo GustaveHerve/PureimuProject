@@ -1,10 +1,7 @@
-use crate::psx::{
-    cpu::{
-        CPU,
-        exceptions::ExceptionType,
-        instructions::{IType, RType},
-    },
-    mem::MemBus,
+use crate::psx::cpu::{
+    CPU,
+    exceptions::ExceptionType,
+    instructions::{IType, RType},
 };
 
 pub enum AluRegOp {
@@ -55,7 +52,7 @@ pub enum HiLoOp {
 }
 
 impl CPU {
-    pub fn alu_reg(&mut self, bus: &MemBus, instr: RType, alu_op: AluRegOp) {
+    pub fn alu_reg(&mut self, instr: RType, instr_pc: u32, alu_op: AluRegOp) {
         let rs_idx = instr.rs() as usize;
         let rs_val = self.core.get_gpr(rs_idx);
         let rt_idx = instr.rt() as usize;
@@ -76,15 +73,13 @@ impl CPU {
         match alu_op {
             AluRegOp::ADD => {
                 if (rs_val >> 31 == rt_val >> 31) && (res >> 31 != rs_val >> 31) {
-                    self.cop0
-                        .throw_exception(self.core.pc, ExceptionType::Overflow);
+                    self.throw_exception(instr_pc, ExceptionType::Overflow);
                     return;
                 }
             }
             AluRegOp::SUB => {
                 if (rs_val >> 31 != rt_val >> 31) && (res >> 31 != rs_val >> 31) {
-                    self.cop0
-                        .throw_exception(self.core.pc, ExceptionType::Overflow);
+                    self.throw_exception(instr_pc, ExceptionType::Overflow);
                     return;
                 }
             }
@@ -95,7 +90,7 @@ impl CPU {
         self.core.set_gpr(rd_idx, res);
     }
 
-    pub fn alu_imm(&mut self, bus: &MemBus, instr: IType, alu_op: AluImmOp) {
+    pub fn alu_imm(&mut self, instr: IType, instr_pc: u32, alu_op: AluImmOp) {
         let rs_idx = instr.rs() as usize;
         let rs_val = self.core.get_gpr(rs_idx);
         let imm_ex = instr.imm() as i16 as i32 as u32;
@@ -110,13 +105,18 @@ impl CPU {
             AluImmOp::LUI => (instr.imm() as u32) << 16,
         };
 
-        // TODO: handle overflow traps for ADDIU and SUBIU
+        if let AluImmOp::ADDI = alu_op {
+            if (rs_val >> 31 == imm_ex >> 31) && (res >> 31 != rs_val >> 31) {
+                self.throw_exception(instr_pc, ExceptionType::Overflow);
+                return;
+            }
+        }
 
         let rt_idx = instr.rt() as usize;
         self.core.set_gpr(rt_idx, res);
     }
 
-    pub fn shift(&mut self, bus: &MemBus, instr: RType, shift_op: ShiftOp) {
+    pub fn shift(&mut self, instr: RType, shift_op: ShiftOp) {
         let rs_idx = instr.rs() as usize;
         let rs_val = self.core.get_gpr(rs_idx);
         let rt_idx = instr.rt() as usize;
@@ -135,7 +135,7 @@ impl CPU {
         self.core.set_gpr(rd_idx, res);
     }
 
-    pub fn muldiv(&mut self, bus: &MemBus, instr: RType, muldiv_op: MulDivOp) {
+    pub fn muldiv(&mut self, instr: RType, muldiv_op: MulDivOp) {
         let rs_idx = instr.rs() as usize;
         let rs_val = self.core.get_gpr(rs_idx);
         let rt_idx = instr.rt() as usize;
@@ -175,7 +175,7 @@ impl CPU {
         self.core.hilo.hi = (res >> 32) as u32;
     }
 
-    pub fn move_hilo(&mut self, bus: &MemBus, instr: RType, hilo_op: HiLoOp) {
+    pub fn move_hilo(&mut self, instr: RType, hilo_op: HiLoOp) {
         let rs_idx = instr.rs() as usize;
         let rs_val = self.core.get_gpr(rs_idx);
         let rd_idx = instr.rd() as usize;

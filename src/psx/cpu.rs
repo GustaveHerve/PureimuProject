@@ -1,16 +1,18 @@
+mod cop0;
 mod exceptions;
 mod instructions;
+mod mem;
 mod timers;
 
 use instructions::alu::AluImmOp;
 use instructions::{IType, JType, RType};
 
-use crate::psx::cpu::exceptions::SR;
-use crate::psx::cpu::instructions::alu::{AluRegOp, HiLoOp, MulDivOp, ShiftOp};
-use crate::psx::cpu::instructions::copro::SR_IDX;
-use crate::psx::cpu::instructions::jmp::BranchOp;
-use crate::psx::cpu::instructions::load_store::{LoadOp, StoreOp};
-use crate::psx::mem::MemBus;
+use super::mem::MemBus;
+use instructions::alu::{AluRegOp, HiLoOp, MulDivOp, ShiftOp};
+use instructions::jmp::BranchOp;
+use instructions::load_store::{LoadOp, StoreOp};
+
+use cop0::COP0;
 
 const ICACHE_SIZE: usize = 4096;
 const ICACHE_LINE_SIZE: usize = 16;
@@ -27,7 +29,6 @@ struct MulDivRegs {
 struct R3000 {
     gpr: [u32; 31],
     pc: u32,
-    sp: u32,
     hilo: MulDivRegs,
 }
 
@@ -54,22 +55,6 @@ impl R3000 {
     }
 }
 
-#[derive(Debug)]
-struct COP0 {
-    pub regs: [u32; 16],
-}
-
-impl COP0 {
-    pub fn get_reg(&self, idx: usize) -> u32 {
-        assert!(idx < 64);
-        self.regs[idx]
-    }
-    pub fn set_reg(&mut self, idx: usize, value: u32) {
-        assert!(idx < 64);
-        self.regs[idx] = value;
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 struct ICacheLine {
     tag: u32,
@@ -89,7 +74,6 @@ impl CPU {
             core: R3000 {
                 gpr: [0; 31],
                 pc: 0,
-                sp: 0,
                 hilo: MulDivRegs { lo: 0, hi: 0 },
             },
             cop0: COP0 { regs: [0; 16] },
@@ -103,17 +87,17 @@ impl CPU {
     }
 
     fn initialize(&mut self) {
-        let mut sr = SR(self.cop0.get_reg(SR_IDX));
+        let mut sr = self.cop0.get_sr();
         sr.set_cu3(0);
         sr.set_cu2(1);
         sr.set_cu1(0);
         sr.set_cu0(1);
         sr.set_ts(1);
-        self.cop0.set_reg(SR_IDX, sr.0);
+        self.cop0.set_sr(&sr);
     }
 
     fn lookup_icache(&self, addr: u32) -> Option<u32> {
-        let line_idx: usize = (addr as usize >> 4) & 0xff;
+        let line_idx: usize = (addr as usize / ICACHE_LINE_SIZE) & 0xff;
         if self.icache[line_idx].tag == (addr & !0xf) {
             Some(self.icache[line_idx].word[((addr >> 2) & 0b11) as usize])
         } else {
@@ -121,19 +105,24 @@ impl CPU {
         }
     }
 
-    fn load_icache_line(&mut self, bus: &MemBus, addr: u32) {
+    fn load_icache_line(&mut self, bus: &MemBus, addr: u32) -> u32 {
         let line_idx: usize = (addr as usize >> 4) & 0xff;
         let start_addr: u32 = addr & !0xf;
         for idx in 0..4 {
-            self.icache[line_idx].word[idx] = bus.read_u32(start_addr + (idx * 4) as u32);
+            self.icache[line_idx].word[idx] =
+                self.read_u32(bus, start_addr + (idx * 4) as u32).unwrap();
         }
         self.icache[line_idx].tag = start_addr;
+
+        // Return the word stored at addr
+        let word_idx: usize = (addr & 0xf / 4) as usize;
+        self.icache[line_idx].word[word_idx]
     }
 
     fn decode(&mut self, bus: &mut MemBus, raw_instr: u32, instr_pc: u32) {
         let i_instr = IType(raw_instr);
         match i_instr.op() {
-            0x00 => self.decode_special(bus, RType(raw_instr)),
+            0x00 => self.decode_special(bus, RType(raw_instr), instr_pc),
             0x01 => self.branch(bus, i_instr, BranchOp::BCondZ),
             0x02 => self.j(bus, JType(raw_instr)),
             0x03 => self.jal(bus, JType(raw_instr)),
@@ -141,15 +130,15 @@ impl CPU {
             0x05 => self.branch(bus, i_instr, BranchOp::BNE),
             0x06 => self.branch(bus, i_instr, BranchOp::BLEZ),
             0x07 => self.branch(bus, i_instr, BranchOp::BGTZ),
-            0x08 => self.alu_imm(bus, i_instr, AluImmOp::ADDI),
-            0x09 => self.alu_imm(bus, i_instr, AluImmOp::ADDIU),
-            0x0a => self.alu_imm(bus, i_instr, AluImmOp::SLTI),
-            0x0b => self.alu_imm(bus, i_instr, AluImmOp::SLTIU),
-            0x0c => self.alu_imm(bus, i_instr, AluImmOp::ANDI),
-            0x0d => self.alu_imm(bus, i_instr, AluImmOp::ORI),
-            0x0e => self.alu_imm(bus, i_instr, AluImmOp::XORI),
-            0x0f => self.alu_imm(bus, i_instr, AluImmOp::LUI),
-            0x10 => self.decode_cop0(RType(raw_instr)),
+            0x08 => self.alu_imm(i_instr, instr_pc, AluImmOp::ADDI),
+            0x09 => self.alu_imm(i_instr, instr_pc, AluImmOp::ADDIU),
+            0x0a => self.alu_imm(i_instr, instr_pc, AluImmOp::SLTI),
+            0x0b => self.alu_imm(i_instr, instr_pc, AluImmOp::SLTIU),
+            0x0c => self.alu_imm(i_instr, instr_pc, AluImmOp::ANDI),
+            0x0d => self.alu_imm(i_instr, instr_pc, AluImmOp::ORI),
+            0x0e => self.alu_imm(i_instr, instr_pc, AluImmOp::XORI),
+            0x0f => self.alu_imm(i_instr, instr_pc, AluImmOp::LUI),
+            0x10 => self.decode_cop0(RType(raw_instr), instr_pc),
             0x12 => self.decode_cop2(RType(raw_instr)),
             0x11 | 0x13 => todo!("Unusable coprocessor exception not implemented yet"),
             0x20 => self.load(bus, i_instr, LoadOp::LB),
@@ -172,36 +161,36 @@ impl CPU {
         }
     }
 
-    fn decode_special(&mut self, bus: &mut MemBus, instr: RType) {
+    fn decode_special(&mut self, bus: &mut MemBus, instr: RType, instr_pc: u32) {
         match instr.funct() {
-            0x00 => self.shift(bus, instr, ShiftOp::SLL),
-            0x02 => self.shift(bus, instr, ShiftOp::SRL),
-            0x03 => self.shift(bus, instr, ShiftOp::SRA),
-            0x04 => self.shift(bus, instr, ShiftOp::SLLV),
-            0x06 => self.shift(bus, instr, ShiftOp::SRLV),
-            0x07 => self.shift(bus, instr, ShiftOp::SRAV),
+            0x00 => self.shift(instr, ShiftOp::SLL),
+            0x02 => self.shift(instr, ShiftOp::SRL),
+            0x03 => self.shift(instr, ShiftOp::SRA),
+            0x04 => self.shift(instr, ShiftOp::SLLV),
+            0x06 => self.shift(instr, ShiftOp::SRLV),
+            0x07 => self.shift(instr, ShiftOp::SRAV),
             0x08 => self.jr(bus, instr),
             0x09 => self.jalr(bus, instr),
             0x0c => todo!("SYSCALL not implemented yet"),
             0x0d => todo!("BREAK not implemented yet"),
-            0x10 => self.move_hilo(bus, instr, HiLoOp::MFHI),
-            0x11 => self.move_hilo(bus, instr, HiLoOp::MTHI),
-            0x12 => self.move_hilo(bus, instr, HiLoOp::MFLO),
-            0x13 => self.move_hilo(bus, instr, HiLoOp::MTLO),
-            0x18 => self.muldiv(bus, instr, MulDivOp::MULT),
-            0x19 => self.muldiv(bus, instr, MulDivOp::MULTU),
-            0x1a => self.muldiv(bus, instr, MulDivOp::DIV),
-            0x1b => self.muldiv(bus, instr, MulDivOp::DIVU),
-            0x20 => self.alu_reg(bus, instr, AluRegOp::ADD),
-            0x21 => self.alu_reg(bus, instr, AluRegOp::ADDU),
-            0x22 => self.alu_reg(bus, instr, AluRegOp::SUB),
-            0x23 => self.alu_reg(bus, instr, AluRegOp::SUBU),
-            0x24 => self.alu_reg(bus, instr, AluRegOp::AND),
-            0x25 => self.alu_reg(bus, instr, AluRegOp::OR),
-            0x26 => self.alu_reg(bus, instr, AluRegOp::XOR),
-            0x27 => self.alu_reg(bus, instr, AluRegOp::NOR),
-            0x2a => self.alu_reg(bus, instr, AluRegOp::SLT),
-            0x2b => self.alu_reg(bus, instr, AluRegOp::SLTU),
+            0x10 => self.move_hilo(instr, HiLoOp::MFHI),
+            0x11 => self.move_hilo(instr, HiLoOp::MTHI),
+            0x12 => self.move_hilo(instr, HiLoOp::MFLO),
+            0x13 => self.move_hilo(instr, HiLoOp::MTLO),
+            0x18 => self.muldiv(instr, MulDivOp::MULT),
+            0x19 => self.muldiv(instr, MulDivOp::MULTU),
+            0x1a => self.muldiv(instr, MulDivOp::DIV),
+            0x1b => self.muldiv(instr, MulDivOp::DIVU),
+            0x20 => self.alu_reg(instr, instr_pc, AluRegOp::ADD),
+            0x21 => self.alu_reg(instr, instr_pc, AluRegOp::ADDU),
+            0x22 => self.alu_reg(instr, instr_pc, AluRegOp::SUB),
+            0x23 => self.alu_reg(instr, instr_pc, AluRegOp::SUBU),
+            0x24 => self.alu_reg(instr, instr_pc, AluRegOp::AND),
+            0x25 => self.alu_reg(instr, instr_pc, AluRegOp::OR),
+            0x26 => self.alu_reg(instr, instr_pc, AluRegOp::XOR),
+            0x27 => self.alu_reg(instr, instr_pc, AluRegOp::NOR),
+            0x2a => self.alu_reg(instr, instr_pc, AluRegOp::SLT),
+            0x2b => self.alu_reg(instr, instr_pc, AluRegOp::SLTU),
             _ => todo!("Reserved Instruction Exception handling not implemented yet"),
         }
     }
@@ -209,9 +198,9 @@ impl CPU {
     pub fn fetch_decode_execute(&mut self, bus: &mut MemBus) {
         let instr: u32 = self
             .lookup_icache(self.core.pc)
-            .unwrap_or_else(|| bus.read_u32(self.core.pc));
+            .unwrap_or_else(|| self.load_icache_line(bus, self.core.pc));
         let prev_pc: u32 = self.core.pc;
-        self.core.pc += 1;
+        self.core.pc += 4;
         self.decode(bus, instr, prev_pc);
     }
 }
