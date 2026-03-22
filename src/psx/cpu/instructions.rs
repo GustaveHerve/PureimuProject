@@ -1,6 +1,6 @@
 pub mod alu;
 pub mod copro;
-pub mod jmp;
+pub mod jump;
 pub mod load_store;
 pub mod special;
 

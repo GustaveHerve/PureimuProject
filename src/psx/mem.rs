@@ -30,13 +30,8 @@ pub struct MemAddr {
 
 pub struct MemBus {
     main_ram: [u8; MAIN_RAM_SIZE],
-    expansion_1: [u8; EXPANSION_1_SIZE],
     scratchpad: [u8; SCRATCHPAD_SIZE],
     io: [u8; IO_SIZE],
-    expansion_2: [u8; EXPANSION_2_SIZE],
-    expansion_3: [u8; EXPANSION_3_SIZE],
-    bios: [u8; BIOS_SIZE],
-    io_cache: [u8; IO_CACHE_SIZE],
 }
 
 impl From<u32> for MemAddr {
@@ -58,13 +53,8 @@ impl MemBus {
     pub fn new() -> MemBus {
         MemBus {
             main_ram: [0; MAIN_RAM_SIZE],
-            expansion_1: [0; EXPANSION_1_SIZE],
             scratchpad: [0; SCRATCHPAD_SIZE],
             io: [0; IO_SIZE],
-            expansion_2: [0; EXPANSION_2_SIZE],
-            expansion_3: [0; EXPANSION_3_SIZE],
-            bios: [0; BIOS_SIZE],
-            io_cache: [0; IO_CACHE_SIZE],
         }
     }
 
@@ -74,12 +64,12 @@ impl MemBus {
         let idx: usize = addr.offset as usize;
         match addr.offset {
             0x0000_0000..0x1f00_0000 => Ok(self.main_ram[idx]), // Main RAM
-            0x1f00_0000..0x1f80_0000 => Ok(self.expansion_1[idx]), // Expansion Region 1
+            0x1f00_0000..0x1f80_0000 => todo!(),                // Expansion Region 1
             0x1f80_0000..0x1f80_1000 => Ok(self.scratchpad[idx]), // Scratchpad
             0x1f80_1000..0x1f80_2000 => Ok(self.io[idx]),       // IO ports
-            0x1f80_2000..0x1fa0_0000 => Ok(self.expansion_2[idx]), // Expansion Region 2
-            0x1fa0_0000..0x1fc0_0000 => Ok(self.expansion_3[idx]), // Expansion Region 3
-            0x1fc0_0000..0x1fc8_0000 => Ok(self.bios[idx]),     // BIOS ROM
+            0x1f80_2000..0x1fa0_0000 => todo!(),                // Expansion Region 2
+            0x1fa0_0000..0x1fc0_0000 => todo!(),                // Expansion Region 3
+            0x1fc0_0000..0x1fc8_0000 => todo!(),                // BIOS ROM
             _ => Err(MemException::BusError),
         }
     }

@@ -11,7 +11,7 @@ use crate::psx::mem::{MemAddr, MemSegment};
 
 use super::mem::MemBus;
 use instructions::alu::{AluRegOp, HiLoOp, MulDivOp, ShiftOp};
-use instructions::jmp::BranchOp;
+use instructions::jump::BranchOp;
 use instructions::load_store::{LoadOp, StoreOp};
 
 use cop0::COP0;
