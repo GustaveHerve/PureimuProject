@@ -7,22 +7,13 @@ const EXPANSION_3_SIZE: usize = 2048 << 10;
 const BIOS_SIZE: usize = 512 << 10;
 const IO_CACHE_SIZE: usize = 512;
 
-const MAIN_RAM_WORDS: usize = MAIN_RAM_SIZE / 4;
-const EXPANSION_1_WORDS: usize = EXPANSION_1_SIZE / 4;
-const SCRATCHPAD_WORDS: usize = SCRATCHPAD_SIZE / 4;
-const IO_WORDS: usize = IO_SIZE / 4;
-const EXPANSION_2_WORDS: usize = EXPANSION_2_SIZE / 4;
-const EXPANSION_3_WORDS: usize = EXPANSION_3_SIZE / 4;
-const BIOS_WORDS: usize = BIOS_SIZE / 4;
-const IO_CACHE_WORDS: usize = IO_CACHE_SIZE / 4;
-
 const MEMSEG_MASK: u32 = 0xe000_0000;
 
 pub enum MemSegment {
-    KUSEG,
-    KSEG0,
-    KSEG1,
-    KSEG2,
+    Kuseg,
+    Kseg0,
+    Kseg1,
+    Kseg2,
 }
 
 #[derive(Debug)]
@@ -38,24 +29,24 @@ pub struct MemAddr {
 }
 
 pub struct MemBus {
-    main_ram: [u32; MAIN_RAM_WORDS],
-    expansion_1: [u32; EXPANSION_1_WORDS],
-    scratchpad: [u32; SCRATCHPAD_WORDS],
-    io: [u32; IO_WORDS],
-    expansion_2: [u32; EXPANSION_2_WORDS],
-    expansion_3: [u32; EXPANSION_3_WORDS],
-    bios: [u32; BIOS_WORDS],
-    io_cache: [u32; IO_CACHE_WORDS],
+    main_ram: [u8; MAIN_RAM_SIZE],
+    expansion_1: [u8; EXPANSION_1_SIZE],
+    scratchpad: [u8; SCRATCHPAD_SIZE],
+    io: [u8; IO_SIZE],
+    expansion_2: [u8; EXPANSION_2_SIZE],
+    expansion_3: [u8; EXPANSION_3_SIZE],
+    bios: [u8; BIOS_SIZE],
+    io_cache: [u8; IO_CACHE_SIZE],
 }
 
 impl From<u32> for MemAddr {
     fn from(value: u32) -> Self {
         MemAddr {
             seg: match (value & MEMSEG_MASK) >> 29 {
-                0b000..=0b011 => MemSegment::KUSEG,
-                0b100 => MemSegment::KSEG0,
-                0b101 => MemSegment::KSEG1,
-                0b110..=0b111 => MemSegment::KSEG2,
+                0b000..=0b011 => MemSegment::Kuseg,
+                0b100 => MemSegment::Kseg0,
+                0b101 => MemSegment::Kseg1,
+                0b110..=0b111 => MemSegment::Kseg2,
                 _ => unreachable!("Invalid segment value in memory address"),
             },
             offset: value & !MEMSEG_MASK,
@@ -66,31 +57,55 @@ impl From<u32> for MemAddr {
 impl MemBus {
     pub fn new() -> MemBus {
         MemBus {
-            main_ram: [0; MAIN_RAM_WORDS],
-            expansion_1: [0; EXPANSION_1_WORDS],
-            scratchpad: [0; SCRATCHPAD_WORDS],
-            io: [0; IO_WORDS],
-            expansion_2: [0; EXPANSION_2_WORDS],
-            expansion_3: [0; EXPANSION_3_WORDS],
-            bios: [0; BIOS_WORDS],
-            io_cache: [0; IO_CACHE_WORDS],
+            main_ram: [0; MAIN_RAM_SIZE],
+            expansion_1: [0; EXPANSION_1_SIZE],
+            scratchpad: [0; SCRATCHPAD_SIZE],
+            io: [0; IO_SIZE],
+            expansion_2: [0; EXPANSION_2_SIZE],
+            expansion_3: [0; EXPANSION_3_SIZE],
+            bios: [0; BIOS_SIZE],
+            io_cache: [0; IO_CACHE_SIZE],
         }
     }
 
     // TODO: reading from memory (except Scratchpad) should have a 6 cycles delay
-    pub fn read_bus(&self, addr: u32) -> Result<u32, MemException> {
-        let addr_aligned = addr & !0b11;
-        let addr: MemAddr = addr_aligned.into();
-        let idx: usize = (addr.offset >> 2) as usize;
+    pub fn read_u8(&self, addr: u32) -> Result<u8, MemException> {
+        let addr = MemAddr::from(addr);
+        let idx: usize = addr.offset as usize;
         match addr.offset {
-            0x0000_0000..0x1f00_0000 => Ok(self.main_ram[idx & (MAIN_RAM_WORDS - 1)]), // Main RAM
-            0x1f00_0000..0x1f80_0000 => Ok(self.expansion_1[idx & (EXPANSION_1_WORDS - 1)]), // Expansion Region 1
-            0x1f80_0000..0x1f80_1000 => Ok(self.scratchpad[idx & (SCRATCHPAD_WORDS - 1)]), // Scratchpad
-            0x1f80_1000..0x1f80_2000 => Ok(self.io[idx & (IO_WORDS - 1)]), // IO ports
-            0x1f80_2000..0x1fa0_0000 => Ok(self.expansion_2[idx & (EXPANSION_2_WORDS - 1)]), // Expansion Region 2
-            0x1fa0_0000..0x1fc0_0000 => Ok(self.expansion_3[idx & (EXPANSION_3_WORDS - 1)]), // Expansion Region 3
-            0x1fc0_0000..0x1fc8_0000 => Ok(self.bios[idx & (BIOS_WORDS - 1)]), // BIOS ROM
+            0x0000_0000..0x1f00_0000 => Ok(self.main_ram[idx]), // Main RAM
+            0x1f00_0000..0x1f80_0000 => Ok(self.expansion_1[idx]), // Expansion Region 1
+            0x1f80_0000..0x1f80_1000 => Ok(self.scratchpad[idx]), // Scratchpad
+            0x1f80_1000..0x1f80_2000 => Ok(self.io[idx]),       // IO ports
+            0x1f80_2000..0x1fa0_0000 => Ok(self.expansion_2[idx]), // Expansion Region 2
+            0x1fa0_0000..0x1fc0_0000 => Ok(self.expansion_3[idx]), // Expansion Region 3
+            0x1fc0_0000..0x1fc8_0000 => Ok(self.bios[idx]),     // BIOS ROM
             _ => Err(MemException::BusError),
         }
+    }
+
+    pub fn read_u16(&self, addr: u32) -> Result<u16, MemException> {
+        // Address must be halfword aligned
+        if addr & 0b1 != 0 {
+            return Err(MemException::AddressError);
+        }
+
+        let lo = self.read_u8(addr)? as u16;
+        let hi = self.read_u8(addr + 1)? as u16;
+        Ok((hi << 8) | lo)
+    }
+
+    pub fn read_u32(&self, addr: u32) -> Result<u32, MemException> {
+        // Address must be word aligned
+        if addr & 0b11 != 0 {
+            return Err(MemException::AddressError);
+        }
+
+        let b0 = self.read_u8(addr)? as u32;
+        let b1 = self.read_u8(addr + 1)? as u32;
+        let b2 = self.read_u8(addr + 2)? as u32;
+        let b3 = self.read_u8(addr + 3)? as u32;
+
+        Ok((b3 << 24) | (b2 << 16) | (b1 << 8) | b0)
     }
 }

@@ -1,21 +1,21 @@
 use crate::psx::{
     cpu::{
-        CPU,
+        Cpu,
         instructions::{IType, JType, RType},
     },
     mem::MemBus,
 };
 
 pub enum BranchOp {
-    BCondZ,
+    Bcondz,
 
-    BEQ,
-    BNE,
-    BLEZ,
-    BGTZ,
+    Beq,
+    Bne,
+    Blez,
+    Bgtz,
 }
 
-impl CPU {
+impl Cpu {
     // TODO: handle jump delay
     // TODO: handle exceptions
 
@@ -52,7 +52,7 @@ impl CPU {
         let rt_val = self.core.get_gpr(rt_idx);
 
         let cond = match branch_op {
-            BranchOp::BCondZ => match instr.rt() {
+            BranchOp::Bcondz => match instr.rt() {
                 0b00000 => rs_val >> 31 == 1,
                 0b00001 => rs_val >> 31 == 0,
                 0b10000 => {
@@ -65,16 +65,16 @@ impl CPU {
                 }
                 _ => panic!("Invalid BCondZ instruction"),
             },
-            BranchOp::BEQ => rs_val == rt_val,
-            BranchOp::BNE => rs_val != rt_val,
-            BranchOp::BLEZ => rs_val >> 31 == 1 || rs_val == 0,
-            BranchOp::BGTZ => rs_val >> 31 == 0 && rs_val != 0,
+            BranchOp::Beq => rs_val == rt_val,
+            BranchOp::Bne => rs_val != rt_val,
+            BranchOp::Blez => rs_val >> 31 == 1 || rs_val == 0,
+            BranchOp::Bgtz => rs_val >> 31 == 0 && rs_val != 0,
         };
 
         if cond {
             let imm_ex = instr.imm() as i16 as i32 as u32;
             let target = imm_ex << 2;
-            self.core.pc = self.core.pc + target;
+            self.core.pc += target;
         }
     }
 

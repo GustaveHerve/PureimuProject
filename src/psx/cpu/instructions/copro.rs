@@ -1,13 +1,13 @@
 use crate::psx::{
     cpu::{
-        CPU,
+        Cpu,
         exceptions::ExceptionType,
         instructions::{IType, RType},
     },
     mem::MemBus,
 };
 
-impl CPU {
+impl Cpu {
     // TODO: handle coprocessor unusable exceptions
 
     pub fn decode_cop0(&mut self, instr: RType, instr_pc: u32) {

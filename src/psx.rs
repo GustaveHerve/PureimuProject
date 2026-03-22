@@ -1,15 +1,15 @@
 mod cpu;
 mod mem;
 
-pub struct PSX {
-    cpu: cpu::CPU,
+pub struct Psx {
+    cpu: cpu::Cpu,
     mem: mem::MemBus,
 }
 
-impl PSX {
-    pub fn new() -> PSX {
-        PSX {
-            cpu: cpu::CPU::new(),
+impl Psx {
+    pub fn new() -> Psx {
+        Psx {
+            cpu: cpu::Cpu::new(),
             mem: mem::MemBus::new(),
         }
     }

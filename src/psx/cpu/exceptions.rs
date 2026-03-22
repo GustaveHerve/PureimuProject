@@ -1,4 +1,4 @@
-use super::CPU;
+use super::Cpu;
 use super::cop0::{BADA_IDX, COP0, EPC_IDX, SR};
 
 pub enum ExceptionType {
@@ -21,16 +21,16 @@ pub enum ExceptionType {
 
 #[repr(u8)]
 enum ExCode {
-    INT = 0x00,
-    ADEL = 0x04,
-    ADES = 0x05,
-    IBE = 0x06,
-    DBE = 0x07,
-    SYSCALL = 0x08,
-    BP = 0x09,
-    RI = 0x0A,
-    CpU = 0x0B,
-    OVF = 0x0C,
+    Int = 0x00,
+    Adel = 0x04,
+    Ades = 0x05,
+    Ibe = 0x06,
+    Dbe = 0x07,
+    Syscall = 0x08,
+    Bp = 0x09,
+    Ri = 0x0A,
+    Cpu = 0x0B,
+    Ovf = 0x0C,
 }
 
 const EXCEPTION_VECTORS: [u32; 4] = [0xbfc0_0000, 0x8000_0000, 0x8000_0040, 0x8000_0080];
@@ -58,7 +58,7 @@ impl COP0 {
     }
 }
 
-impl CPU {
+impl Cpu {
     pub fn throw_exception(&mut self, instr_pc: u32, exception_type: ExceptionType) {
         let mut cause = self.cop0.get_cause();
         let mut sr = self.cop0.get_sr();
@@ -96,20 +96,20 @@ impl CPU {
 
         // Update CAUSE
         let excode: ExCode = match exception_type {
-            ExceptionType::Reset => ExCode::INT, // TODO: check reset exception behaviour
-            ExceptionType::MemoryLoad | ExceptionType::MemoryIFetch => ExCode::ADEL,
-            ExceptionType::MemoryStore => ExCode::ADES,
-            ExceptionType::BusError => ExCode::DBE,
-            ExceptionType::BusErrorIFetch => ExCode::IBE,
-            ExceptionType::Overflow => ExCode::OVF,
-            ExceptionType::Interrupt => ExCode::INT,
-            ExceptionType::Syscall => ExCode::SYSCALL,
-            ExceptionType::Breakpoint => ExCode::BP,
-            ExceptionType::ReservedInstruction => ExCode::RI,
+            ExceptionType::Reset => ExCode::Int, // TODO: check reset exception behaviour
+            ExceptionType::MemoryLoad | ExceptionType::MemoryIFetch => ExCode::Adel,
+            ExceptionType::MemoryStore => ExCode::Ades,
+            ExceptionType::BusError => ExCode::Dbe,
+            ExceptionType::BusErrorIFetch => ExCode::Ibe,
+            ExceptionType::Overflow => ExCode::Ovf,
+            ExceptionType::Interrupt => ExCode::Int,
+            ExceptionType::Syscall => ExCode::Syscall,
+            ExceptionType::Breakpoint => ExCode::Bp,
+            ExceptionType::ReservedInstruction => ExCode::Ri,
             ExceptionType::CopUnusable0
             | ExceptionType::CopUnusable1
             | ExceptionType::CopUnusable2
-            | ExceptionType::CopUnusable3 => ExCode::CpU,
+            | ExceptionType::CopUnusable3 => ExCode::Cpu,
         };
 
         // Set BadVaddr in case of Address exception
