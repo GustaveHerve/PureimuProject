@@ -18,17 +18,17 @@ impl Cpu {
         }
     }
 
-    pub fn read_u8(&self, bus: &MemBus, addr: u32) -> Result<u8, MemException> {
+    pub fn read_u8_protected(&self, bus: &MemBus, addr: u32) -> Result<u8, MemException> {
         self.check_privilege(addr)?;
         bus.read_u8(addr)
     }
 
-    pub fn read_u16(&self, bus: &MemBus, addr: u32) -> Result<u16, MemException> {
+    pub fn read_u16_protected(&self, bus: &MemBus, addr: u32) -> Result<u16, MemException> {
         self.check_privilege(addr)?;
         bus.read_u16(addr)
     }
 
-    pub fn read_u32(&self, bus: &MemBus, addr: u32) -> Result<u32, MemException> {
+    pub fn read_u32_protected(&self, bus: &MemBus, addr: u32) -> Result<u32, MemException> {
         self.check_privilege(addr)?;
         bus.read_u32(addr)
     }

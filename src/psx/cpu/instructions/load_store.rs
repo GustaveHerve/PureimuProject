@@ -25,7 +25,7 @@ impl Cpu {
     fn lwl(&self, bus: &MemBus, addr: u32, val: u32) -> Result<u32, MemException> {
         let mut res = val.to_le_bytes();
         let aligned_addr = addr & !3;
-        let word_arr = self.read_u32(bus, aligned_addr)?.to_le_bytes();
+        let word_arr = self.read_u32_protected(bus, aligned_addr)?.to_le_bytes();
 
         let offset: usize = addr as usize % 4;
         let len: usize = offset + 1;
@@ -37,7 +37,7 @@ impl Cpu {
     fn lwr(&self, bus: &MemBus, addr: u32, val: u32) -> Result<u32, MemException> {
         let mut res = val.to_le_bytes();
         let aligned_addr = addr & !3;
-        let word_arr = self.read_u32(bus, aligned_addr)?.to_le_bytes();
+        let word_arr = self.read_u32_protected(bus, aligned_addr)?.to_le_bytes();
 
         let offset: usize = addr as usize % 4;
         let len: usize = 4 - offset;
@@ -48,7 +48,7 @@ impl Cpu {
 
     fn swl(&self, bus: &MemBus, addr: u32, val: u32) -> Result<u32, MemException> {
         let aligned_addr = addr & !3;
-        let mut res = self.read_u32(bus, aligned_addr)?.to_le_bytes();
+        let mut res = self.read_u32_protected(bus, aligned_addr)?.to_le_bytes();
         let word_arr = val.to_le_bytes();
 
         let offset: usize = val as usize % 4;
@@ -60,7 +60,7 @@ impl Cpu {
 
     fn swr(&self, bus: &MemBus, addr: u32, val: u32) -> Result<u32, MemException> {
         let aligned_addr = addr & !3;
-        let mut res = self.read_u32(bus, aligned_addr)?.to_le_bytes();
+        let mut res = self.read_u32_protected(bus, aligned_addr)?.to_le_bytes();
         let word_arr = val.to_le_bytes();
 
         let offset: usize = addr as usize % 4;
@@ -75,15 +75,15 @@ impl Cpu {
 
         let addr = rs_val.wrapping_add_signed(instr.imm().cast_signed() as i32);
         let res = match load_op {
-            LoadOp::Lb => self.read_u8(bus, addr).unwrap().cast_signed() as i32 as u32,
-            LoadOp::Lbu => self.read_u8(bus, addr).unwrap() as u32,
-            LoadOp::Lh => self.read_u16(bus, addr).unwrap().cast_signed() as i32 as u32,
-            LoadOp::Lhu => self.read_u16(bus, addr).unwrap() as u32,
-            LoadOp::Lw => self.read_u32(bus, addr).unwrap(),
+            LoadOp::Lb => self.read_u8_protected(bus, addr).unwrap().cast_signed() as i32 as u32,
+            LoadOp::Lbu => self.read_u8_protected(bus, addr).unwrap() as u32,
+            LoadOp::Lh => self.read_u16_protected(bus, addr).unwrap().cast_signed() as i32 as u32,
+            LoadOp::Lhu => self.read_u16_protected(bus, addr).unwrap() as u32,
+            LoadOp::Lw => self.read_u32_protected(bus, addr).unwrap(),
             LoadOp::Lwl => self.lwl(bus, addr, rs_val).unwrap(),
             LoadOp::Lwr => self.lwr(bus, addr, rs_val).unwrap(),
         };
-        self.core.set_gpr(instr.rt() as usize, res);
+        self.delayed_load(instr.rt() as usize, res);
     }
 
     pub fn store(&mut self, bus: &mut MemBus, instr: IType, store_op: StoreOp) {

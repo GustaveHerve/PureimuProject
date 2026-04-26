@@ -39,7 +39,8 @@ impl Cpu {
         let rt_idx = instr.rt() as usize;
 
         let addr = rs_val.wrapping_add_signed(instr.imm().cast_signed() as i32);
-        self.cop0.set_reg(rt_idx, self.read_u32(bus, addr).unwrap());
+        self.cop0
+            .set_reg(rt_idx, self.read_u32_protected(bus, addr).unwrap());
     }
 
     pub fn swc0(&mut self, bus: &mut MemBus, instr: IType) {

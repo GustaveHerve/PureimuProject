@@ -4,17 +4,16 @@ mod instructions;
 mod mem;
 mod timers;
 
-use instructions::alu::AluImmOp;
-use instructions::{IType, JType, RType};
-
-use crate::psx::mem::{MemAddr, MemSegment};
+use std::collections::VecDeque;
 
 use super::mem::MemBus;
+use crate::psx::mem::{MemAddr, MemSegment};
+use cop0::COP0;
+use instructions::alu::AluImmOp;
 use instructions::alu::{AluRegOp, HiLoOp, MulDivOp, ShiftOp};
 use instructions::jump::BranchOp;
 use instructions::load_store::{LoadOp, StoreOp};
-
-use cop0::COP0;
+use instructions::{IType, JType, RType};
 
 const ICACHE_SIZE: usize = 4096;
 const ICACHE_LINE_SIZE: usize = 16;
@@ -65,6 +64,9 @@ pub struct Cpu {
     core: R3000,
     cop0: COP0,
     icache: [ICacheLine; ICACHE_LINE_LEN],
+    pending_loads: VecDeque<(usize, u32, bool)>,
+    pending_branch: Option<(u32, u32)>,
+    cycles: u64,
 }
 
 impl Default for Cpu {
@@ -80,6 +82,9 @@ impl Default for Cpu {
                 tag: 0,
                 word: [0; 4],
             }; ICACHE_LINE_LEN],
+            pending_loads: VecDeque::with_capacity(2),
+            pending_branch: None,
+            cycles: 0,
         }
     }
 }
@@ -114,14 +119,43 @@ impl Cpu {
         let line_idx: usize = (addr as usize >> 4) & 0xff;
         let start_addr: u32 = addr & !0xf;
         for idx in 0..4 {
-            self.icache[line_idx].word[idx] =
-                self.read_u32(bus, start_addr + (idx * 4) as u32).unwrap();
+            self.icache[line_idx].word[idx] = self
+                .read_u32_protected(bus, start_addr + (idx * 4) as u32)
+                .unwrap();
         }
         self.icache[line_idx].tag = start_addr;
 
         // Return the word stored at addr
         let word_idx: usize = ((addr & 0xf) / 4) as usize;
         self.icache[line_idx].word[word_idx]
+    }
+
+    fn delayed_load(&mut self, reg: usize, val: u32) {
+        self.pending_loads.push_back((reg, val, true));
+    }
+
+    fn handle_pending_load(&mut self) {
+        let e = self.pending_loads.pop_front();
+        let Some(load) = e else {
+            return;
+        };
+        if load.2 {
+            // Pending load should be applied next call, put it back in queue
+            self.pending_loads.push_front((load.0, load.1, false));
+            return;
+        }
+
+        // Apply the pending load
+        self.core.set_gpr(load.0, load.1);
+
+        // Take into account delay of the potential next pending load
+        let e = self.pending_loads.pop_front();
+        let Some(load) = e else {
+            return;
+        };
+        if load.2 {
+            self.pending_loads.push_front((load.0, load.1, false));
+        }
     }
 
     fn decode(&mut self, bus: &mut MemBus, raw_instr: u32, instr_pc: u32) {
@@ -201,17 +235,19 @@ impl Cpu {
     }
 
     pub fn fetch_decode_execute(&mut self, bus: &mut MemBus) {
-        let mem_addr: MemAddr = self.core.pc.into();
+        let mem_addr = MemAddr::from(self.core.pc);
         let instr: u32 = match mem_addr.seg {
             MemSegment::Kuseg | MemSegment::Kseg0 => self
                 .lookup_icache(self.core.pc)
                 .unwrap_or_else(|| self.load_icache_line(bus, self.core.pc)),
-            MemSegment::Kseg1 => self.read_u32(bus, self.core.pc).unwrap(),
+            MemSegment::Kseg1 => self.read_u32_protected(bus, self.core.pc).unwrap(),
             MemSegment::Kseg2 => unreachable!("CPU attempted to execute KSEG2 memory !"),
         };
 
         let prev_pc: u32 = self.core.pc;
-        self.core.pc += 4;
+        self.core.pc = self.core.pc.wrapping_add(4);
         self.decode(bus, instr, prev_pc);
+
+        self.handle_pending_load();
     }
 }
