@@ -25,7 +25,7 @@ pub enum MemException {
 
 pub struct MemAddr {
     pub seg: MemSegment,
-    pub offset: u32,
+    pub phys_addr: u32,
 }
 
 pub struct MemBus {
@@ -44,7 +44,7 @@ impl From<u32> for MemAddr {
                 0b110..=0b111 => MemSegment::Kseg2,
                 _ => unreachable!("Invalid segment value in memory address"),
             },
-            offset: value & !MEMSEG_MASK,
+            phys_addr: value & !MEMSEG_MASK,
         }
     }
 }
@@ -61,8 +61,8 @@ impl MemBus {
     // TODO: reading from memory (except Scratchpad) should have a 6 cycles delay
     pub fn read_u8(&self, addr: u32) -> Result<u8, MemException> {
         let addr = MemAddr::from(addr);
-        let idx: usize = addr.offset as usize;
-        match addr.offset {
+        let idx: usize = addr.phys_addr as usize;
+        match addr.phys_addr {
             0x0000_0000..0x1f00_0000 => Ok(self.main_ram[idx]), // Main RAM
             0x1f00_0000..0x1f80_0000 => todo!(),                // Expansion Region 1
             0x1f80_0000..0x1f80_1000 => Ok(self.scratchpad[idx]), // Scratchpad
@@ -80,9 +80,9 @@ impl MemBus {
             return Err(MemException::AddressError);
         }
 
-        let lo = self.read_u8(addr)? as u16;
-        let hi = self.read_u8(addr + 1)? as u16;
-        Ok((hi << 8) | lo)
+        let bytes = [self.read_u8(addr)?, self.read_u8(addr + 1)?];
+
+        Ok(u16::from_le_bytes(bytes))
     }
 
     pub fn read_u32(&self, addr: u32) -> Result<u32, MemException> {
@@ -91,11 +91,13 @@ impl MemBus {
             return Err(MemException::AddressError);
         }
 
-        let b0 = self.read_u8(addr)? as u32;
-        let b1 = self.read_u8(addr + 1)? as u32;
-        let b2 = self.read_u8(addr + 2)? as u32;
-        let b3 = self.read_u8(addr + 3)? as u32;
+        let bytes = [
+            self.read_u8(addr)?,
+            self.read_u8(addr + 1)?,
+            self.read_u8(addr + 2)?,
+            self.read_u8(addr + 3)?,
+        ];
 
-        Ok((b3 << 24) | (b2 << 16) | (b1 << 8) | b0)
+        Ok(u32::from_le_bytes(bytes))
     }
 }

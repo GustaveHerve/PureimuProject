@@ -4,10 +4,12 @@ mod instructions;
 mod mem;
 mod timers;
 
+use std::array::from_fn;
 use std::collections::VecDeque;
 
 use super::mem::MemBus;
-use crate::psx::mem::{MemAddr, MemSegment};
+use crate::psx::mem::{MemAddr, MemException, MemSegment};
+use bitfield::bitfield;
 use cop0::COP0;
 use instructions::alu::AluImmOp;
 use instructions::alu::{AluRegOp, HiLoOp, MulDivOp, ShiftOp};
@@ -51,6 +53,17 @@ impl R3000 {
         self.hilo.lo = val as u32;
         self.hilo.hi = (val >> 32) as u32;
     }
+}
+
+bitfield! {
+    pub struct ICacheTag(u32);
+    impl Debug;
+    impl new;
+
+    u8;
+    pub(super) valid, set_valid : 3, 0;
+    u32;
+    pub(super) phys_addr, set_phys_addr : 31, 12;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -107,27 +120,37 @@ impl Cpu {
     }
 
     fn lookup_icache(&self, addr: u32) -> Option<u32> {
-        let line_idx: usize = (addr as usize / ICACHE_LINE_SIZE) & 0xff;
-        if self.icache[line_idx].tag == (addr & !0xf) {
-            Some(self.icache[line_idx].word[((addr >> 2) & 0b11) as usize])
+        let line_idx: usize = (addr as usize >> 4) & 0xff; // Line index is address bits [11:4]
+        let tag = ICacheTag(self.icache[line_idx].tag);
+        if tag.phys_addr() == (addr & !0xfff) {
+            let word_idx: usize = ((addr >> 2) & 0b11) as usize;
+            // Check if accessed word is valid in cache
+            if (tag.valid() & (0b1 << word_idx)) == 0 {
+                // Accessed word is invalid, trigger a cache miss
+                None
+            } else {
+                Some(self.icache[line_idx].word[word_idx])
+            }
         } else {
             None
         }
     }
 
-    fn load_icache_line(&mut self, bus: &MemBus, addr: u32) -> u32 {
+    fn handle_icache_miss(&mut self, bus: &MemBus, addr: u32) -> Result<u32, MemException> {
         let line_idx: usize = (addr as usize >> 4) & 0xff;
         let start_addr: u32 = addr & !0xf;
-        for idx in 0..4 {
-            self.icache[line_idx].word[idx] = self
-                .read_u32_protected(bus, start_addr + (idx * 4) as u32)
-                .unwrap();
+        // On cache miss CPU fills the accessed line from accessed word to end of cache line
+        // TODO: IBLKSZ field of BIU register should limit maximum burst length
+        let start_word_idx: usize = ((addr >> 2) & 0b11) as usize;
+        for word_idx in start_word_idx..4 {
+            self.icache[line_idx].word[word_idx] =
+                self.read_u32_protected(bus, start_addr + (word_idx * 4) as u32)?
         }
-        self.icache[line_idx].tag = start_addr;
+        self.icache[line_idx].tag = ICacheTag::new(0xf << start_word_idx, addr & !0xfff).0;
 
         // Return the word stored at addr
         let word_idx: usize = ((addr & 0xf) / 4) as usize;
-        self.icache[line_idx].word[word_idx]
+        Ok(self.icache[line_idx].word[word_idx])
     }
 
     fn delayed_load(&mut self, reg: usize, val: u32) {
@@ -237,9 +260,12 @@ impl Cpu {
     pub fn fetch_decode_execute(&mut self, bus: &mut MemBus) {
         let mem_addr = MemAddr::from(self.core.pc);
         let instr: u32 = match mem_addr.seg {
-            MemSegment::Kuseg | MemSegment::Kseg0 => self
-                .lookup_icache(self.core.pc)
-                .unwrap_or_else(|| self.load_icache_line(bus, self.core.pc)),
+            MemSegment::Kuseg | MemSegment::Kseg0 => {
+                self.lookup_icache(self.core.pc).unwrap_or_else(|| {
+                    self.handle_icache_miss(bus, self.core.pc)
+                        .expect("PC attemped to read an unauthorized memory address ({})")
+                })
+            }
             MemSegment::Kseg1 => self.read_u32_protected(bus, self.core.pc).unwrap(),
             MemSegment::Kseg2 => unreachable!("CPU attempted to execute KSEG2 memory !"),
         };
