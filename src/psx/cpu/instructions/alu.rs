@@ -105,11 +105,12 @@ impl Cpu {
             AluImmOp::Lui => (instr.imm() as u32) << 16,
         };
 
-        if let AluImmOp::Addi = alu_op {
-            if (rs_val >> 31 == imm_ex >> 31) && (res >> 31 != rs_val >> 31) {
-                self.throw_exception(instr_pc, ExceptionType::Overflow);
-                return;
-            }
+        if let AluImmOp::Addi = alu_op
+            && (rs_val >> 31 == imm_ex >> 31)
+            && (res >> 31 != rs_val >> 31)
+        {
+            self.throw_exception(instr_pc, ExceptionType::Overflow);
+            return;
         }
 
         let rt_idx = instr.rt() as usize;
@@ -157,7 +158,7 @@ impl Cpu {
                                 (rs_val as u64) << 32 | 1
                             }
                         }
-                        u32::MAX if rs_val == 0x8000_0000 => 0x8000_0000 as u64,
+                        u32::MAX if rs_val == 0x8000_0000 => 0x8000_0000,
                         _ => (rs_val.cast_signed() / rt_val.cast_signed()) as u64,
                     }
                 }
